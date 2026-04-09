@@ -1,0 +1,487 @@
+import { useState, useEffect } from 'react';
+import { Property, Application } from '@/src/types';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { 
+  LayoutDashboard, 
+  Home, 
+  Users, 
+  MessageSquare, 
+  Settings, 
+  Plus, 
+  MoreVertical,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Loader2
+} from 'lucide-react';
+import { motion } from 'motion/react';
+import { toast } from 'sonner';
+import { Chat } from './Chat';
+import { NewListingForm } from './NewListingForm';
+import { auth, db, isFirebaseConfigured } from '@/src/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, orderBy } from 'firebase/firestore';
+
+export function AgentDashboard() {
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [applications, setApplications] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingProperty, setEditingProperty] = useState<Property | null>(null);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'listings' | 'messages' | 'tenants' | 'settings'>('dashboard');
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (u) {
+        fetchDashboardData(u.uid);
+      } else {
+        setLoading(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const fetchDashboardData = async (userId: string) => {
+    if (!isFirebaseConfigured()) return;
+    
+    try {
+      // Fetch properties listed by this agent
+      const propsRef = collection(db, 'properties');
+      const propsQuery = query(propsRef, where('ownerId', '==', userId), orderBy('createdAt', 'desc'));
+      const propsSnapshot = await getDocs(propsQuery);
+      const propsData = propsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Property));
+      setProperties(propsData);
+
+      // Fetch applications for these properties
+      // In Firestore, if applications are top-level, we need to filter by propertyId or ownerId
+      // Let's assume applications have an ownerId field for easier querying
+      const appsRef = collection(db, 'applications');
+      // For now, we'll fetch all and filter client-side if we don't have ownerId on application
+      // But better to query by propertyId if we have many. 
+      // Let's try to query by tenantId or just all for now and filter.
+      const appsSnapshot = await getDocs(appsRef);
+      const allApps = appsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Filter applications for properties owned by this user
+      const propIds = propsData.map(p => p.id);
+      const filteredApps = allApps.filter((app: any) => propIds.includes(app.propertyId));
+      setApplications(filteredApps);
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStatusUpdate = async (id: string, newStatus: string) => {
+    try {
+      const appRef = doc(db, 'applications', id);
+      await updateDoc(appRef, { status: newStatus });
+      
+      setApplications(prev => prev.map(app => 
+        app.id === id ? { ...app, status: newStatus } : app
+      ));
+      toast.success(`Application ${newStatus}`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to update status');
+    }
+  };
+
+  const handleNewListingSuccess = () => {
+    setIsDialogOpen(false);
+    setEditingProperty(null);
+    if (user) fetchDashboardData(user.uid);
+  };
+
+  const handleEdit = (property: Property) => {
+    setEditingProperty(property);
+    setIsDialogOpen(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this listing?')) return;
+    
+    try {
+      await deleteDoc(doc(db, 'properties', id));
+      setProperties(prev => prev.filter(p => p.id !== id));
+      toast.success('Property deleted successfully');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete property');
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen bg-slate-50">
+      {/* Sidebar */}
+      <aside className="w-64 bg-white border-r hidden md:block">
+        <div className="p-6">
+          <h2 className="text-xl font-bold text-primary">Agent Portal</h2>
+        </div>
+        <nav className="px-4 space-y-1">
+          <Button 
+            variant="ghost" 
+            onClick={() => setActiveTab('dashboard')}
+            className={`w-full justify-start gap-3 ${activeTab === 'dashboard' ? 'bg-primary/5 text-primary' : ''}`}
+          >
+            <LayoutDashboard className="h-4 w-4" /> Dashboard
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setActiveTab('listings')}
+            className={`w-full justify-start gap-3 ${activeTab === 'listings' ? 'bg-primary/5 text-primary' : ''}`}
+          >
+            <Home className="h-4 w-4" /> My Listings
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setActiveTab('tenants')}
+            className={`w-full justify-start gap-3 ${activeTab === 'tenants' ? 'bg-primary/5 text-primary' : ''}`}
+          >
+            <Users className="h-4 w-4" /> Tenants
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setActiveTab('messages')}
+            className={`w-full justify-start gap-3 ${activeTab === 'messages' ? 'bg-primary/5 text-primary' : ''}`}
+          >
+            <MessageSquare className="h-4 w-4" /> Messages
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setActiveTab('settings')}
+            className={`w-full justify-start gap-3 ${activeTab === 'settings' ? 'bg-primary/5 text-primary' : ''}`}
+          >
+            <Settings className="h-4 w-4" /> Settings
+          </Button>
+        </nav>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 p-8">
+        {activeTab === 'dashboard' && (
+          <>
+            <div className="flex justify-between items-center mb-8">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">Welcome back, Premium Realty</h1>
+                <p className="text-slate-500">Here's what's happening with your properties today.</p>
+              </div>
+              
+              <Dialog open={isDialogOpen} onOpenChange={(open) => {
+                setIsDialogOpen(open);
+                if (!open) setEditingProperty(null);
+              }}>
+                <DialogTrigger render={
+                  <Button className="gap-2" onClick={() => setEditingProperty(null)}>
+                    <Plus className="h-4 w-4" /> Add New Listing
+                  </Button>
+                } />
+                <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>{editingProperty ? 'Edit Property Listing' : 'Add New Property Listing'}</DialogTitle>
+                    <DialogDescription>
+                      {editingProperty ? 'Update the details of your property listing.' : 'Fill in the details below to list a new property on Nyumbani Hub.'}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <NewListingForm 
+                    property={editingProperty || undefined}
+                    onSuccess={handleNewListingSuccess} 
+                    onCancel={() => {
+                      setIsDialogOpen(false);
+                      setEditingProperty(null);
+                    }} 
+                  />
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">Active Listings</p>
+                      <h3 className="text-2xl font-bold">{properties.length}</h3>
+                    </div>
+                    <div className="p-3 bg-blue-50 rounded-xl text-blue-600">
+                      <Home className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">New Applications</p>
+                      <h3 className="text-2xl font-bold">{applications.filter(a => a.status === 'pending').length}</h3>
+                    </div>
+                    <div className="p-3 bg-amber-50 rounded-xl text-amber-600">
+                      <Users className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">Monthly Revenue</p>
+                      <h3 className="text-2xl font-bold">KSh {(properties.length * 65000).toLocaleString()}</h3>
+                    </div>
+                    <div className="p-3 bg-emerald-50 rounded-xl text-emerald-600">
+                      <CheckCircle2 className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Recent Applications */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Recent Applications</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-6">
+                      {applications.length > 0 ? applications.map((app) => (
+                        <div key={app.id} className="flex items-start justify-between border-b pb-4 last:border-0">
+                          <div className="space-y-1">
+                            <div className="font-bold text-slate-900">{app.tenantName}</div>
+                            <div className="text-xs text-slate-500">{app.propertyTitle}</div>
+                            <div className="text-sm text-slate-600 mt-2 italic">"{app.message}"</div>
+                          </div>
+                          <div className="flex flex-col items-end gap-2">
+                            <Badge variant={app.status === 'approved' ? 'default' : app.status === 'pending' ? 'secondary' : 'destructive'}>
+                              {app.status}
+                            </Badge>
+                            {app.status === 'pending' && (
+                              <div className="flex gap-1">
+                                <Button size="xs" variant="outline" className="h-7 w-7 p-0 text-emerald-600" onClick={() => handleStatusUpdate(app.id, 'approved')}>
+                                  <CheckCircle2 className="h-4 w-4" />
+                                </Button>
+                                <Button size="xs" variant="outline" className="h-7 w-7 p-0 text-destructive" onClick={() => handleStatusUpdate(app.id, 'rejected')}>
+                                  <XCircle className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )) : (
+                        <p className="text-center text-slate-500 py-4">No applications yet.</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* My Listings Summary */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>My Listings</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {properties.length > 0 ? properties.map((prop) => (
+                        <div key={prop.id} className="flex items-center gap-4 p-3 rounded-xl hover:bg-slate-50 transition-colors">
+                          <img src={prop.images[0]} className="h-12 w-12 rounded-lg object-cover" />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-slate-900 truncate">{prop.title}</div>
+                            <div className="text-xs text-slate-500">{prop.location}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-bold text-primary text-sm">KSh {prop.price.toLocaleString()}</div>
+                            <Badge variant="outline" className="text-[10px] h-4">Available</Badge>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(prop)}>
+                              <Settings className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      )) : (
+                        <p className="text-center text-slate-500 py-4">You haven't listed any properties yet.</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'messages' && (
+          <div className="space-y-6">
+            <div className="mb-6">
+              <h1 className="text-2xl font-bold text-slate-900">Messages</h1>
+              <p className="text-slate-500">Chat with potential tenants and clients.</p>
+            </div>
+            <Chat />
+          </div>
+        )}
+
+        {activeTab === 'listings' && (
+          <div className="space-y-6">
+             <div className="flex justify-between items-center mb-6">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">My Listings</h1>
+                <p className="text-slate-500">Manage all your properties in one place.</p>
+              </div>
+              <Button onClick={() => {
+                setEditingProperty(null);
+                setIsDialogOpen(true);
+              }} className="gap-2">
+                <Plus className="h-4 w-4" /> Add New Listing
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {properties.map(prop => (
+                <div key={prop.id} className="bg-white rounded-2xl border overflow-hidden group">
+                   <div className="relative h-48 overflow-hidden">
+                      <img src={prop.images[0]} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                      <div className="absolute top-4 right-4">
+                        <Badge className="bg-white/90 text-primary hover:bg-white">Available</Badge>
+                      </div>
+                   </div>
+                   <div className="p-4">
+                      <h3 className="font-bold text-slate-900 mb-1">{prop.title}</h3>
+                      <p className="text-xs text-slate-500 mb-4">{prop.location}</p>
+                      <div className="flex justify-between items-center">
+                        <div className="font-bold text-primary">KSh {prop.price.toLocaleString()}</div>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => handleEdit(prop)}>Edit</Button>
+                          <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(prop.id)}>Delete</Button>
+                        </div>
+                      </div>
+                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'tenants' && (
+          <div className="space-y-6">
+            <div className="mb-6">
+              <h1 className="text-2xl font-bold text-slate-900">Tenants</h1>
+              <p className="text-slate-500">Manage your current tenants and their lease details.</p>
+            </div>
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b">
+                        <th className="p-4 font-bold text-sm text-slate-700">Tenant Name</th>
+                        <th className="p-4 font-bold text-sm text-slate-700">Property</th>
+                        <th className="p-4 font-bold text-sm text-slate-700">Rent Status</th>
+                        <th className="p-4 font-bold text-sm text-slate-700">Lease Ends</th>
+                        <th className="p-4 font-bold text-sm text-slate-700">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {applications.filter(a => a.status === 'approved').map(tenant => (
+                        <tr key={tenant.id} className="border-b last:border-0 hover:bg-slate-50 transition-colors">
+                          <td className="p-4">
+                            <div className="font-medium text-slate-900">{tenant.tenantName}</div>
+                            <div className="text-xs text-slate-500">{tenant.tenantEmail}</div>
+                          </td>
+                          <td className="p-4 text-sm text-slate-600">{tenant.propertyTitle}</td>
+                          <td className="p-4">
+                            <Badge variant="default" className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none">Paid</Badge>
+                          </td>
+                          <td className="p-4 text-sm text-slate-600">Dec 31, 2026</td>
+                          <td className="p-4">
+                            <Button variant="ghost" size="sm">View Details</Button>
+                          </td>
+                        </tr>
+                      ))}
+                      {applications.filter(a => a.status === 'approved').length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-slate-500">No active tenants found.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {activeTab === 'settings' && (
+          <div className="space-y-6">
+            <div className="mb-6">
+              <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
+              <p className="text-slate-500">Manage your account and agency profile.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Agency Profile</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">Agency Name</label>
+                    <input type="text" className="w-full p-2 rounded-lg border" defaultValue="Premium Realty" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">Email Address</label>
+                    <input type="email" className="w-full p-2 rounded-lg border" defaultValue="agent1@example.com" disabled />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">Phone Number</label>
+                    <input type="tel" className="w-full p-2 rounded-lg border" defaultValue="+254 712 345 678" />
+                  </div>
+                  <Button className="w-full">Save Changes</Button>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Notifications</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between p-2 border rounded-lg">
+                    <div>
+                      <div className="font-medium">Email Notifications</div>
+                      <div className="text-xs text-slate-500">Receive emails for new applications</div>
+                    </div>
+                    <input type="checkbox" defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between p-2 border rounded-lg">
+                    <div>
+                      <div className="font-medium">SMS Alerts</div>
+                      <div className="text-xs text-slate-500">Get text messages for urgent messages</div>
+                    </div>
+                    <input type="checkbox" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+

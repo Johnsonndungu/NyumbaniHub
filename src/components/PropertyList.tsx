@@ -1,109 +1,79 @@
+import { useState, useEffect } from 'react';
 import { Property } from '@/src/types';
 import { PropertyCard } from './PropertyCard';
 import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
+import { db, isFirebaseConfigured } from '@/src/firebase';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 
-const MOCK_PROPERTIES: Property[] = [
-  {
-    id: '1',
-    title: 'Modern 2 Bedroom Apartment',
-    description: 'Beautiful apartment in the heart of Kilimani with modern finishes and great views.',
-    location: 'Kilimani, Nairobi',
-    price: 65000,
-    type: 'apartment',
-    bedrooms: 2,
-    bathrooms: 2,
-    images: ['https://picsum.photos/seed/apt1/800/600'],
-    ownerId: 'agent1',
-    ownerType: 'agent',
-    status: 'available',
-    amenities: ['WiFi', 'Parking', 'Gym'],
-    createdAt: new Date()
-  },
-  {
-    id: '2',
-    title: 'Spacious 4 Bedroom Villa',
-    description: 'Luxury villa in a gated community in Runda. Perfect for a large family.',
-    location: 'Runda, Nairobi',
-    price: 250000,
-    type: 'house',
-    bedrooms: 4,
-    bathrooms: 4,
-    images: ['https://picsum.photos/seed/house1/800/600'],
-    ownerId: 'landlord1',
-    ownerType: 'landlord',
-    status: 'available',
-    amenities: ['Swimming Pool', 'Garden', 'Security'],
-    createdAt: new Date()
-  },
-  {
-    id: '3',
-    title: 'Cozy Studio in Westlands',
-    description: 'Compact and stylish studio apartment, ideal for young professionals.',
-    location: 'Westlands, Nairobi',
-    price: 45000,
-    type: 'studio',
-    bedrooms: 1,
-    bathrooms: 1,
-    images: ['https://picsum.photos/seed/studio1/800/600'],
-    ownerId: 'agent2',
-    ownerType: 'agent',
-    status: 'available',
-    amenities: ['WiFi', 'Elevator', 'Backup Generator'],
-    createdAt: new Date()
-  },
-  {
-    id: '4',
-    title: '3 Bedroom Townhouse',
-    description: 'Modern townhouse in Syokimau with easy access to the expressway.',
-    location: 'Syokimau, Machakos',
-    price: 55000,
-    type: 'house',
-    bedrooms: 3,
-    bathrooms: 3,
-    images: ['https://picsum.photos/seed/townhouse1/800/600'],
-    ownerId: 'agent3',
-    ownerType: 'agent',
-    status: 'available',
-    amenities: ['Parking', 'Borehole', 'Solar Heating'],
-    createdAt: new Date()
-  },
-  {
-    id: '5',
-    title: 'Executive 1 Bedroom in Nyali',
-    description: 'Beachfront apartment in Nyali with stunning ocean views.',
-    location: 'Nyali, Mombasa',
-    price: 80000,
-    type: 'apartment',
-    bedrooms: 1,
-    bathrooms: 1,
-    images: ['https://picsum.photos/seed/mombasa1/800/600'],
-    ownerId: 'landlord2',
-    ownerType: 'landlord',
-    status: 'available',
-    amenities: ['Beach Access', 'AC', 'Pool'],
-    createdAt: new Date()
-  },
-  {
-    id: '6',
-    title: 'Budget Bedsitter in Roysambu',
-    description: 'Affordable and clean bedsitter near TRM mall.',
-    location: 'Roysambu, Nairobi',
-    price: 12000,
-    type: 'bedsitter',
-    bedrooms: 0,
-    bathrooms: 1,
-    images: ['https://picsum.photos/seed/bedsitter1/800/600'],
-    ownerId: 'agent4',
-    ownerType: 'agent',
-    status: 'available',
-    amenities: ['Water Included', 'Security'],
-    createdAt: new Date()
-  }
-];
+interface PropertyListProps {
+  filters?: {
+    location: string;
+    type: string;
+    priceRange: string;
+  };
+  onNavigate?: (page: 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard') => void;
+}
 
-export function PropertyList() {
+export function PropertyList({ filters, onNavigate }: PropertyListProps) {
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchProperties = async () => {
+      setLoading(true);
+      setError(null);
+
+      if (!isFirebaseConfigured()) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const propsRef = collection(db, 'properties');
+        let q = query(propsRef, orderBy('createdAt', 'desc'));
+
+        if (filters?.type && filters.type !== 'all') {
+          q = query(q, where('type', '==', filters.type));
+        }
+
+        const snapshot = await getDocs(q);
+        let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Property));
+
+        // Client-side filtering for location and price range (Firestore has limits on multiple where clauses with different fields)
+        if (filters?.location) {
+          const loc = filters.location.toLowerCase();
+          data = data.filter(p => p.location.toLowerCase().includes(loc));
+        }
+
+        if (filters?.priceRange && filters.priceRange !== 'all') {
+          const range = filters.priceRange;
+          if (range === '0-20000') {
+            data = data.filter(p => p.price <= 20000);
+          } else if (range === '20000-50000') {
+            data = data.filter(p => p.price > 20000 && p.price <= 50000);
+          } else if (range === '50000-100000') {
+            data = data.filter(p => p.price > 50000 && p.price <= 100000);
+          } else if (range === '100000+') {
+            data = data.filter(p => p.price > 100000);
+          }
+        }
+
+        setProperties(data);
+      } catch (err) {
+        console.error('Error fetching properties:', err);
+        setError('Could not load properties. Please check your connection.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProperties();
+  }, [filters]);
+
   return (
-    <section className="py-16 bg-slate-50">
+    <section id="property-list" className="py-16 bg-slate-50">
       <div className="container mx-auto px-4">
         <div className="flex flex-col md:flex-row justify-between items-end mb-10 gap-4">
           <div>
@@ -117,11 +87,23 @@ export function PropertyList() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-          {MOCK_PROPERTIES.map((property, index) => (
-            <PropertyCard key={property.id} property={property} index={index} />
-          ))}
-        </div>
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <Loader2 className="h-10 w-10 text-primary animate-spin mb-4" />
+            <p className="text-slate-500">Loading properties...</p>
+          </div>
+        ) : error ? (
+          <div className="text-center py-20">
+            <p className="text-destructive font-medium">{error}</p>
+            <Button variant="link" onClick={() => window.location.reload()}>Try Again</Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+            {properties.map((property, index) => (
+              <PropertyCard key={property.id} property={property} index={index} onNavigate={onNavigate} />
+            ))}
+          </div>
+        )}
 
         <div className="mt-16 text-center">
           <Button size="lg" variant="outline" className="px-12">

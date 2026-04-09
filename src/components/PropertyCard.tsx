@@ -9,10 +9,11 @@ import { PropertyDetails } from './PropertyDetails';
 interface PropertyCardProps {
   property: Property;
   index: number;
-  key?: string;
+  onNavigate?: (page: 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard') => void;
+  key?: any;
 }
 
-export function PropertyCard({ property, index }: PropertyCardProps) {
+export function PropertyCard({ property, index, onNavigate }: PropertyCardProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -78,7 +79,7 @@ export function PropertyCard({ property, index }: PropertyCardProps) {
               Verified {property.ownerType}
             </div>
           </div>
-          <PropertyDetails property={property} />
+          <PropertyDetails property={property} onNavigate={onNavigate} />
         </CardFooter>
       </Card>
     </motion.div>

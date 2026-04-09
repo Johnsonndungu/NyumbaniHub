@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { auth, db, isFirebaseConfigured } from '@/src/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { Property } from '@/src/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,23 +15,68 @@ import { Badge } from '@/components/ui/badge';
 import { MapPin, Bed, Bath, ShieldCheck, Star, CheckCircle2, Phone, Mail, Home } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 interface PropertyDetailsProps {
   property: Property;
+  onNavigate?: (page: 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard') => void;
 }
 
-export function PropertyDetails({ property }: PropertyDetailsProps) {
+export function PropertyDetails({ property, onNavigate }: PropertyDetailsProps) {
   const [isApplying, setIsApplying] = useState(false);
+  const [message, setMessage] = useState("");
+  const [activeImage, setActiveImage] = useState(property.images[0]);
+  const [user, setUser] = useState<User | null>(null);
 
-  const handleApply = () => {
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSendMessage = () => {
+    if (onNavigate) {
+      onNavigate('messages');
+    }
+  };
+
+  const handleApply = async () => {
+    if (!user) {
+      toast.error("Please sign in to apply for this property.");
+      return;
+    }
+
+    if (!isFirebaseConfigured()) {
+      toast.error("Firebase is not configured. Please check your settings.");
+      return;
+    }
+
     setIsApplying(true);
-    // Simulate application
-    setTimeout(() => {
-      setIsApplying(false);
+    try {
+      const appsRef = collection(db, 'applications');
+      await addDoc(appsRef, {
+        propertyId: property.id,
+        propertyTitle: property.title,
+        tenantId: user.uid,
+        tenantName: user.displayName || 'Anonymous User',
+        tenantEmail: user.email,
+        status: 'pending',
+        message: message || "I am interested in this property.",
+        createdAt: serverTimestamp()
+      });
+
       toast.success("Application submitted!", {
         description: "The agent will contact you soon regarding your application for " + property.title
       });
-    }, 1500);
+      setMessage("");
+    } catch (err) {
+      console.error('Error submitting application:', err);
+      toast.error("Failed to submit application. Please try again.");
+    } finally {
+      setIsApplying(false);
+    }
   };
 
   return (
@@ -56,13 +103,32 @@ export function PropertyDetails({ property }: PropertyDetailsProps) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
           <div className="space-y-6">
-            <div className="aspect-video rounded-xl overflow-hidden">
-              <img 
-                src={property.images[0]} 
-                alt={property.title} 
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
+            <div className="space-y-4">
+              <div className="aspect-video rounded-xl overflow-hidden border bg-slate-100">
+                <img 
+                  src={activeImage} 
+                  alt={property.title} 
+                  className="w-full h-full object-cover transition-all duration-300"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+              
+              {property.images.length > 1 && (
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                  {property.images.map((img, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setActiveImage(img)}
+                      className={cn(
+                        "relative shrink-0 w-20 aspect-video rounded-md overflow-hidden border-2 transition-all",
+                        activeImage === img ? "border-primary" : "border-transparent opacity-70 hover:opacity-100"
+                      )}
+                    >
+                      <img src={img} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             
             <div className="flex gap-4">
@@ -131,7 +197,11 @@ export function PropertyDetails({ property }: PropertyDetailsProps) {
                   <Phone className="h-4 w-4" />
                   Show Phone Number
                 </Button>
-                <Button variant="outline" className="w-full justify-start gap-3">
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start gap-3"
+                  onClick={handleSendMessage}
+                >
                   <Mail className="h-4 w-4" />
                   Send Message
                 </Button>
@@ -140,16 +210,24 @@ export function PropertyDetails({ property }: PropertyDetailsProps) {
 
             <div className="p-6 border rounded-2xl bg-white shadow-sm">
               <h4 className="font-bold mb-4">Interested in this house?</h4>
-              <p className="text-sm text-slate-500 mb-6">
+              <p className="text-sm text-slate-500 mb-4">
                 Submit your application directly to the {property.ownerType}. They will review your profile and get back to you within 24 hours.
               </p>
-              <Button 
-                onClick={handleApply} 
-                disabled={isApplying}
-                className="w-full h-12 text-lg font-bold"
-              >
-                {isApplying ? "Submitting..." : "Apply Now"}
-              </Button>
+              <div className="space-y-4">
+                <textarea 
+                  className="w-full p-3 border rounded-lg text-sm min-h-[100px] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                  placeholder="Optional: Add a message to the agent..."
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                />
+                <Button 
+                  onClick={handleApply} 
+                  disabled={isApplying}
+                  className="w-full h-12 text-lg font-bold"
+                >
+                  {isApplying ? "Submitting..." : "Apply Now"}
+                </Button>
+              </div>
               <p className="text-[10px] text-center text-slate-400 mt-4 uppercase tracking-widest">
                 Secure application powered by Nyumbani Hub
               </p>
