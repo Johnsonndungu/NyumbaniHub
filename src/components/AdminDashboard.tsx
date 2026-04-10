@@ -47,11 +47,11 @@ import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy, addDoc,
 
 interface User {
   id: string;
-  name: string;
+  displayName: string;
   email: string;
   role: 'agent' | 'landlord' | 'tenant' | 'admin';
   verified: boolean;
-  joinedAt: string;
+  joinedAt: any;
 }
 
 interface Stats {
@@ -98,7 +98,7 @@ export function AdminDashboard() {
         totalUsers: usersData.length,
         totalProperties: propsData.length,
         pendingVerifications: usersData.filter(u => !u.verified && (u.role === 'agent' || u.role === 'landlord')).length,
-        totalRevenue: propsData.reduce((acc, p) => acc + (p.price * 0.05), 0) // Mock calculation
+        totalRevenue: propsData.reduce((acc, p) => acc + (p.price * 0.05), 0) // 5% commission estimate
       });
     } catch (err) {
       console.error('Error fetching admin data:', err);
@@ -183,7 +183,7 @@ export function AdminDashboard() {
   };
 
   const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (user.displayName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -374,15 +374,15 @@ export function AdminDashboard() {
                   <div className="divide-y">
                     {users.slice(0, 5).map(user => (
                       <div key={user.id} className="py-4 flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600">
-                            {user.name.charAt(0)}
+                          <div className="flex items-center gap-4">
+                            <div className="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600">
+                              {(user.displayName || 'U').charAt(0)}
+                            </div>
+                            <div>
+                              <div className="font-bold text-slate-900">{user.displayName || 'Anonymous'}</div>
+                              <div className="text-xs text-slate-500">{user.email}</div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="font-bold text-slate-900">{user.name}</div>
-                            <div className="text-xs text-slate-500">{user.email}</div>
-                          </div>
-                        </div>
                         <div className="flex items-center gap-4">
                           <Badge variant="outline" className="capitalize">{user.role}</Badge>
                           {user.verified ? (
@@ -453,7 +453,7 @@ export function AdminDashboard() {
                     {filteredUsers.map(user => (
                       <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="py-4">
-                          <div className="font-bold text-slate-900">{user.name}</div>
+                          <div className="font-bold text-slate-900">{user.displayName || 'Anonymous'}</div>
                           <div className="text-xs text-slate-500">{user.email}</div>
                         </td>
                         <td className="py-4">
@@ -484,7 +484,7 @@ export function AdminDashboard() {
                           </div>
                         </td>
                         <td className="py-4 text-sm text-slate-600">
-                          {new Date(user.joinedAt).toLocaleDateString()}
+                          {user.joinedAt?.toDate ? user.joinedAt.toDate().toLocaleDateString() : new Date(user.joinedAt).toLocaleDateString()}
                         </td>
                         <td className="py-4 text-right">
                           <DropdownMenu>
@@ -540,10 +540,10 @@ export function AdminDashboard() {
                       <div className="flex justify-between items-start mb-4">
                         <div className="flex items-center gap-3">
                           <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center font-bold text-primary text-xl">
-                            {user.name.charAt(0)}
+                            {(user.displayName || 'U').charAt(0)}
                           </div>
                           <div>
-                            <div className="font-bold text-slate-900">{user.name}</div>
+                            <div className="font-bold text-slate-900">{user.displayName || 'Anonymous'}</div>
                             <div className="text-xs text-slate-500 capitalize">{user.role} Account</div>
                           </div>
                         </div>
@@ -554,7 +554,7 @@ export function AdminDashboard() {
                           <Mail className="h-4 w-4" /> {user.email}
                         </div>
                         <div className="flex items-center gap-2 text-sm text-slate-600">
-                          <Calendar className="h-4 w-4" /> Joined {new Date(user.joinedAt).toLocaleDateString()}
+                          <Calendar className="h-4 w-4" /> Joined {user.joinedAt?.toDate ? user.joinedAt.toDate().toLocaleDateString() : new Date(user.joinedAt).toLocaleDateString()}
                         </div>
                       </div>
                       <div className="flex gap-3">

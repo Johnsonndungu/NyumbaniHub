@@ -13,6 +13,7 @@ import {
   where, 
   onSnapshot, 
   addDoc, 
+  getDocs,
   serverTimestamp, 
   orderBy,
   limit,
@@ -68,19 +69,45 @@ export function Chat() {
       orderBy('createdAt', 'desc')
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       
       // Group by conversation
       const convMap = new Map<string, Conversation>();
+      
+      // Fetch user details for each unique otherId
+      const otherIds = Array.from(new Set(msgs.map(m => m.senderId === currentUser.uid ? m.receiverId : m.senderId)));
+      
+      const userDetailsMap = new Map<string, { name: string; photoURL?: string }>();
+      
+      for (const id of otherIds) {
+        try {
+          const userDoc = await getDocs(query(collection(db, 'users'), where('uid', '==', id)));
+          if (!userDoc.empty) {
+            const userData = userDoc.docs[0].data();
+            userDetailsMap.set(id, {
+              name: userData.displayName || 'Anonymous User',
+              photoURL: userData.photoURL
+            });
+          } else {
+            userDetailsMap.set(id, { name: 'User ' + id.slice(0, 4) });
+          }
+        } catch (err) {
+          console.error('Error fetching user details:', err);
+          userDetailsMap.set(id, { name: 'User ' + id.slice(0, 4) });
+        }
+      }
+
       msgs.forEach(m => {
         const otherId = m.senderId === currentUser.uid ? m.receiverId : m.senderId;
         if (!convMap.has(otherId)) {
+          const details = userDetailsMap.get(otherId);
           convMap.set(otherId, {
-            id: otherId, // Using otherId as convId for simplicity
+            id: otherId,
             otherUser: {
               id: otherId,
-              name: 'User ' + otherId.slice(0, 4), // We'd fetch real names in a real app
+              name: details?.name || 'User ' + otherId.slice(0, 4),
+              photoURL: details?.photoURL
             },
             lastMessage: m.text,
             lastMessageAt: m.createdAt

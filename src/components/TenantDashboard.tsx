@@ -218,7 +218,7 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
                             <div>
                               <p className="font-bold text-sm">{app.propertyTitle}</p>
                               <p className="text-xs text-slate-500">
-                                {new Date(app.createdAt).toLocaleDateString()}
+                                {app.createdAt?.toDate ? app.createdAt.toDate().toLocaleDateString() : new Date(app.createdAt).toLocaleDateString()}
                               </p>
                             </div>
                             {getStatusBadge(app.status)}
@@ -290,7 +290,7 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
                               </div>
                               <div className="flex items-center gap-4 text-sm text-slate-500">
                                 <span className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" /> Applied on {new Date(app.createdAt).toLocaleDateString()}
+                                  <Calendar className="h-3 w-3" /> Applied on {app.createdAt?.toDate ? app.createdAt.toDate().toLocaleDateString() : new Date(app.createdAt).toLocaleDateString()}
                                 </span>
                                 <span className="flex items-center gap-1">
                                   <MapPin className="h-3 w-3" /> Nairobi, Kenya

@@ -177,7 +177,7 @@ export function AgentDashboard() {
           <>
             <div className="flex justify-between items-center mb-8">
               <div>
-                <h1 className="text-2xl font-bold text-slate-900">Welcome back, Premium Realty</h1>
+                <h1 className="text-2xl font-bold text-slate-900">Welcome back, {user?.displayName || 'Partner'}</h1>
                 <p className="text-slate-500">Here's what's happening with your properties today.</p>
               </div>
               
@@ -242,7 +242,7 @@ export function AgentDashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-slate-500">Monthly Revenue</p>
-                      <h3 className="text-2xl font-bold">KSh {(properties.length * 65000).toLocaleString()}</h3>
+                      <h3 className="text-2xl font-bold">KSh {properties.reduce((acc, p) => acc + p.price, 0).toLocaleString()}</h3>
                     </div>
                     <div className="p-3 bg-emerald-50 rounded-xl text-emerald-600">
                       <CheckCircle2 className="h-6 w-6" />
@@ -443,15 +443,15 @@ export function AgentDashboard() {
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700">Agency Name</label>
-                    <input type="text" className="w-full p-2 rounded-lg border" defaultValue="Premium Realty" />
+                    <input type="text" className="w-full p-2 rounded-lg border" defaultValue={user?.displayName || ''} />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700">Email Address</label>
-                    <input type="email" className="w-full p-2 rounded-lg border" defaultValue="agent1@example.com" disabled />
+                    <input type="email" className="w-full p-2 rounded-lg border" defaultValue={user?.email || ''} disabled />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700">Phone Number</label>
-                    <input type="tel" className="w-full p-2 rounded-lg border" defaultValue="+254 712 345 678" />
+                    <input type="tel" className="w-full p-2 rounded-lg border" defaultValue={user?.phoneNumber || ''} />
                   </div>
                   <Button className="w-full">Save Changes</Button>
                 </CardContent>
