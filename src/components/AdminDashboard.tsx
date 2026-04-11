@@ -42,8 +42,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { db, isFirebaseConfigured, auth } from '@/src/firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, query, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
+import { api } from '@/src/services/api';
 
 interface User {
   id: string;
@@ -82,23 +81,21 @@ export function AdminDashboard() {
   const [broadcastMessage, setBroadcastMessage] = useState({ subject: '', content: '', target: 'all' });
 
   const fetchData = async () => {
-    if (!isFirebaseConfigured()) return;
-    
     try {
-      const usersSnapshot = await getDocs(collection(db, 'users'));
-      const propsSnapshot = await getDocs(collection(db, 'properties'));
+      const usersData = await api.getUsers();
+      const propsData = await api.getProperties();
       
-      const usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-      const propsData = propsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Property));
+      const safeUsers = Array.isArray(usersData) ? usersData : [];
+      const safeProps = Array.isArray(propsData) ? propsData : [];
       
-      setUsers(usersData);
-      setProperties(propsData);
+      setUsers(safeUsers);
+      setProperties(safeProps);
       
       setStats({
-        totalUsers: usersData.length,
-        totalProperties: propsData.length,
-        pendingVerifications: usersData.filter(u => !u.verified && (u.role === 'agent' || u.role === 'landlord')).length,
-        totalRevenue: propsData.reduce((acc, p) => acc + (p.price * 0.05), 0) // 5% commission estimate
+        totalUsers: safeUsers.length,
+        totalProperties: safeProps.length,
+        pendingVerifications: safeUsers.filter((u: any) => !u.isVerified && (u.role === 'agent' || u.role === 'landlord')).length,
+        totalRevenue: safeProps.reduce((acc: number, p: any) => acc + (p.price * 0.05), 0)
       });
     } catch (err) {
       console.error('Error fetching admin data:', err);
@@ -114,7 +111,7 @@ export function AdminDashboard() {
 
   const handleVerifyUser = async (userId: string, status: boolean) => {
     try {
-      await updateDoc(doc(db, 'users', userId), { verified: status });
+      await api.updateUser(userId, { verified: status });
       toast.success(status ? 'User verified successfully' : 'Verification removed');
       fetchData();
     } catch (err) {
@@ -127,7 +124,7 @@ export function AdminDashboard() {
     if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
     
     try {
-      await deleteDoc(doc(db, 'users', userId));
+      await api.deleteUser(userId);
       toast.success('User deleted successfully');
       fetchData();
     } catch (err) {
@@ -140,7 +137,7 @@ export function AdminDashboard() {
     if (!confirm('Are you sure you want to delete this property listing?')) return;
     
     try {
-      await deleteDoc(doc(db, 'properties', propertyId));
+      await api.deleteProperty(propertyId);
       toast.success('Property deleted successfully');
       fetchData();
     } catch (err) {
@@ -151,7 +148,7 @@ export function AdminDashboard() {
 
   const handleChangeRole = async (userId: string, newRole: string) => {
     try {
-      await updateDoc(doc(db, 'users', userId), { role: newRole });
+      await api.updateUser(userId, { role: newRole });
       toast.success(`User role updated to ${newRole}`);
       fetchData();
     } catch (err) {
@@ -167,10 +164,10 @@ export function AdminDashboard() {
     }
     
     try {
-      await addDoc(collection(db, 'broadcasts'), {
+      const currentUser = api.getCurrentUser();
+      await api.sendBroadcast({
         ...broadcastMessage,
-        senderId: auth.currentUser?.uid,
-        createdAt: serverTimestamp()
+        senderId: currentUser?.id
       });
       
       toast.success(`Broadcast sent to ${broadcastMessage.target} users!`);

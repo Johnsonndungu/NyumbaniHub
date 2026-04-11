@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { auth, db, isFirebaseConfigured } from '@/src/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import { api } from '@/src/services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +20,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 
 interface Application {
   id: string;
@@ -43,26 +41,19 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (u) {
-        fetchTenantData(u.uid);
-      } else {
-        setLoading(false);
-      }
-    });
-    return () => unsubscribe();
+    const currentUser = api.getCurrentUser();
+    setUser(currentUser);
+    if (currentUser) {
+      fetchTenantData(currentUser.id);
+    } else {
+      setLoading(false);
+    }
   }, []);
 
   const fetchTenantData = async (userId: string) => {
-    if (!isFirebaseConfigured()) return;
-    
     try {
-      const appsRef = collection(db, 'applications');
-      const q = query(appsRef, where('tenantId', '==', userId), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(q);
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Application));
-      setApplications(data);
+      const data = await api.getApplications({ tenantId: userId });
+      setApplications(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching tenant data:', err);
       toast.error('Failed to load dashboard data');

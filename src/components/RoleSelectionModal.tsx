@@ -9,8 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { User, Building2, Home, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { db } from '@/src/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { api } from '@/src/services/api';
 
 interface RoleSelectionModalProps {
   isOpen: boolean;
@@ -26,7 +25,7 @@ export function RoleSelectionModal({ isOpen, onClose, userId, onRoleSelected }: 
     if (!userId) return;
     setLoading(true);
     try {
-      await updateDoc(doc(db, 'users', userId), { role });
+      await api.updateUser(userId, { role });
       
       toast.success(`Account set up as ${role}`);
       onRoleSelected(role);

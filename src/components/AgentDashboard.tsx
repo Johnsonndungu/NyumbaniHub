@@ -28,9 +28,7 @@ import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { Chat } from './Chat';
 import { NewListingForm } from './NewListingForm';
-import { auth, db, isFirebaseConfigured } from '@/src/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, orderBy } from 'firebase/firestore';
+import { api } from '@/src/services/api';
 
 export function AgentDashboard() {
   const [properties, setProperties] = useState<Property[]>([]);
@@ -42,41 +40,29 @@ export function AgentDashboard() {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (u) {
-        fetchDashboardData(u.uid);
-      } else {
-        setLoading(false);
-      }
-    });
-    return () => unsubscribe();
+    const currentUser = api.getCurrentUser();
+    setUser(currentUser);
+    if (currentUser) {
+      fetchDashboardData(currentUser.id);
+    } else {
+      setLoading(false);
+    }
   }, []);
 
   const fetchDashboardData = async (userId: string) => {
-    if (!isFirebaseConfigured()) return;
-    
     try {
       // Fetch properties listed by this agent
-      const propsRef = collection(db, 'properties');
-      const propsQuery = query(propsRef, where('ownerId', '==', userId), orderBy('createdAt', 'desc'));
-      const propsSnapshot = await getDocs(propsQuery);
-      const propsData = propsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Property));
-      setProperties(propsData);
+      const propsData = await api.getProperties({ ownerId: userId });
+      const safeProps = Array.isArray(propsData) ? propsData : [];
+      setProperties(safeProps);
 
       // Fetch applications for these properties
-      // In Firestore, if applications are top-level, we need to filter by propertyId or ownerId
-      // Let's assume applications have an ownerId field for easier querying
-      const appsRef = collection(db, 'applications');
-      // For now, we'll fetch all and filter client-side if we don't have ownerId on application
-      // But better to query by propertyId if we have many. 
-      // Let's try to query by tenantId or just all for now and filter.
-      const appsSnapshot = await getDocs(appsRef);
-      const allApps = appsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const allApps = await api.getApplications();
+      const safeApps = Array.isArray(allApps) ? allApps : [];
       
       // Filter applications for properties owned by this user
-      const propIds = propsData.map(p => p.id);
-      const filteredApps = allApps.filter((app: any) => propIds.includes(app.propertyId));
+      const propIds = safeProps.map((p: any) => p.id);
+      const filteredApps = safeApps.filter((app: any) => propIds.includes(app.propertyId));
       setApplications(filteredApps);
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
@@ -88,8 +74,7 @@ export function AgentDashboard() {
 
   const handleStatusUpdate = async (id: string, newStatus: string) => {
     try {
-      const appRef = doc(db, 'applications', id);
-      await updateDoc(appRef, { status: newStatus });
+      await api.updateApplication(id, newStatus);
       
       setApplications(prev => prev.map(app => 
         app.id === id ? { ...app, status: newStatus } : app
@@ -104,7 +89,7 @@ export function AgentDashboard() {
   const handleNewListingSuccess = () => {
     setIsDialogOpen(false);
     setEditingProperty(null);
-    if (user) fetchDashboardData(user.uid);
+    if (user) fetchDashboardData(user.id);
   };
 
   const handleEdit = (property: Property) => {
@@ -116,7 +101,7 @@ export function AgentDashboard() {
     if (!confirm('Are you sure you want to delete this listing?')) return;
     
     try {
-      await deleteDoc(doc(db, 'properties', id));
+      await api.deleteProperty(id);
       setProperties(prev => prev.filter(p => p.id !== id));
       toast.success('Property deleted successfully');
     } catch (err) {

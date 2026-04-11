@@ -1,15 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { PropertyList } from './components/PropertyList';
 import { AgentDashboard } from './components/AgentDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { TenantDashboard } from './components/TenantDashboard';
+import { LandingPage } from './components/LandingPage';
 import { Chat } from './components/Chat';
 import { Footer } from './components/Footer';
 import { ShieldCheck, UserCheck, CreditCard, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Toaster } from '@/components/ui/sonner';
+import { api } from './services/api';
 
 function FeatureSection() {
   const features = [
@@ -67,22 +69,44 @@ function FeatureSection() {
 }
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard'>('home');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard'>('landing');
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
     location: '',
     type: 'all',
     priceRange: 'all'
   });
 
+  useEffect(() => {
+    const currentUser = api.getCurrentUser();
+    setUser(currentUser);
+    setLoading(false);
+  }, []);
+
   const handleSearch = (newFilters: { location: string; type: string; priceRange: string }) => {
     setFilters(newFilters);
   };
 
+  const isAuthorized = (page: string) => {
+    if (loading) return false;
+    if (!user) return false;
+    
+    if (page === 'admin') return user?.role === 'admin';
+    if (page === 'dashboard') return user?.role === 'agent' || user?.role === 'landlord';
+    if (page === 'tenant-dashboard') return user?.role === 'tenant';
+    if (page === 'messages') return !!user;
+    
+    return true;
+  };
+
   return (
     <div className="min-h-screen bg-background font-sans">
-      <Navbar onNavigate={setCurrentPage} currentPage={currentPage} />
+      <Navbar onNavigate={setCurrentPage} currentPage={currentPage as any} />
       <main>
-        {currentPage === 'home' ? (
+        {currentPage === 'landing' ? (
+          <LandingPage onExplore={() => setCurrentPage('home')} onSearch={handleSearch} />
+        ) : currentPage === 'home' ? (
           <>
             <Hero onSearch={handleSearch} />
             <FeatureSection />
@@ -112,15 +136,29 @@ export default function App() {
               </div>
             </section>
           </>
-        ) : currentPage === 'dashboard' ? (
+        ) : currentPage === 'dashboard' && isAuthorized('dashboard') ? (
           <AgentDashboard />
-        ) : currentPage === 'tenant-dashboard' ? (
+        ) : currentPage === 'tenant-dashboard' && isAuthorized('tenant-dashboard') ? (
           <TenantDashboard onNavigate={setCurrentPage} />
-        ) : currentPage === 'admin' ? (
+        ) : currentPage === 'admin' && isAuthorized('admin') ? (
           <AdminDashboard />
-        ) : (
+        ) : currentPage === 'messages' && isAuthorized('messages') ? (
           <div className="container mx-auto px-4 py-12">
             <Chat />
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+            <ShieldCheck className="h-16 w-16 text-primary mb-4 opacity-20" />
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">Access Restricted</h2>
+            <p className="text-slate-500 max-w-md mb-8">
+              You need to be logged in with the appropriate account permissions to view this page.
+            </p>
+            <button 
+              onClick={() => setCurrentPage('landing')}
+              className="bg-primary text-white px-8 py-3 rounded-lg font-bold hover:bg-primary/90 transition-colors"
+            >
+              Back to Safety
+            </button>
           </div>
         )}
       </main>

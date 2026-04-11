@@ -14,8 +14,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Loader2, Plus, X, Upload, Image as ImageIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { auth, db, isFirebaseConfigured } from '@/src/firebase';
-import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { api } from '@/src/services/api';
 
 interface NewListingFormProps {
   onSuccess: () => void;
@@ -103,13 +102,9 @@ export function NewListingForm({ onSuccess, onCancel, property }: NewListingForm
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth.currentUser) {
+    const currentUser = api.getCurrentUser();
+    if (!currentUser) {
       toast.error("You must be signed in to list a property.");
-      return;
-    }
-
-    if (!isFirebaseConfigured()) {
-      toast.error("Firebase is not configured.");
       return;
     }
 
@@ -123,18 +118,14 @@ export function NewListingForm({ onSuccess, onCancel, property }: NewListingForm
         bathrooms: Number(formData.bathrooms),
         amenities: formData.amenities.split(',').map(a => a.trim()).filter(a => a),
         images: imageUrls.length > 0 ? imageUrls : [`https://picsum.photos/seed/${Math.random()}/800/600`],
-        ownerId: auth.currentUser.uid,
-        status: property?.status || 'available',
-        updatedAt: serverTimestamp()
+        ownerId: currentUser.id,
+        status: property?.status || 'available'
       };
 
       if (property) {
-        await updateDoc(doc(db, 'properties', property.id), payload);
+        await api.updateProperty(property.id, payload);
       } else {
-        await addDoc(collection(db, 'properties'), {
-          ...payload,
-          createdAt: serverTimestamp()
-        });
+        await api.createProperty(payload);
       }
 
       toast.success(`Property ${property ? 'updated' : 'listed'} successfully!`);

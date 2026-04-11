@@ -1,6 +1,4 @@
 import { useState, useEffect } from 'react';
-import { auth, googleProvider, isFirebaseConfigured, db } from '@/src/firebase';
-import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -11,136 +9,50 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Home, LogIn, LogOut, User as UserIcon, Menu, X, AlertCircle, LayoutDashboard, ShieldCheck, MessageSquare } from 'lucide-react';
+import { Home, LogIn, LogOut, User as UserIcon, Menu, X, LayoutDashboard, ShieldCheck, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
-import { RoleSelectionModal } from './RoleSelectionModal';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { api } from '@/src/services/api';
+import { AuthModal } from './AuthModal';
 
 interface NavbarProps {
-  onNavigate: (page: 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard') => void;
-  currentPage: 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard';
+  onNavigate: (page: 'landing' | 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard') => void;
+  currentPage: 'landing' | 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard';
 }
 
 export function Navbar({ onNavigate, currentPage }: NavbarProps) {
-  const [user, setUser] = useState<User | null>(null);
-  const [userProfile, setUserProfile] = useState<any>(null);
+  const [user, setUser] = useState<any>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [showRoleModal, setShowRoleModal] = useState(false);
-  const [newUserId, setNewUserId] = useState<string | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
-  const isAdmin = userProfile?.role === 'admin';
-  const isAgentOrLandlord = userProfile?.role === 'agent' || userProfile?.role === 'landlord';
+  const isAdmin = user?.role === 'admin';
+  const isAgentOrLandlord = user?.role === 'agent' || user?.role === 'landlord';
 
   useEffect(() => {
-    if (!isFirebaseConfigured()) return;
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        // Sync/Fetch profile from Firestore
-        try {
-          const userDoc = await getDoc(doc(db, 'users', u.uid));
-          if (userDoc.exists()) {
-            setUserProfile(userDoc.data());
-          } else {
-            // Create initial profile if not exists
-            const initialProfile = {
-              uid: u.uid,
-              email: u.email,
-              name: u.displayName,
-              photoURL: u.photoURL,
-              role: 'tenant', // Default role
-              verified: false,
-              joinedAt: new Date().toISOString(),
-              createdAt: serverTimestamp()
-            };
-            await setDoc(doc(db, 'users', u.uid), initialProfile);
-            setUserProfile(initialProfile);
-          }
-        } catch (err) {
-          console.error('Error syncing user profile:', err);
-        }
-      } else {
-        setUserProfile(null);
-      }
-    });
-    return () => unsubscribe();
+    const currentUser = api.getCurrentUser();
+    setUser(currentUser);
   }, []);
 
-  const handleLogin = async () => {
-    if (!isFirebaseConfigured()) {
-      toast.error("Firebase Not Configured", {
-        description: "Please set up Firebase in the AI Studio settings to enable authentication.",
-        icon: <AlertCircle className="h-4 w-4" />
-      });
-      return;
-    }
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const firebaseUser = result.user;
-      
-      // Sync with Firestore
-      const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-      let profile;
-      
-      if (userDoc.exists()) {
-        profile = userDoc.data();
-        setUserProfile(profile);
-        toast.success(`Welcome back, ${profile.name}!`);
-      } else {
-        profile = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          name: firebaseUser.displayName,
-          photoURL: firebaseUser.photoURL,
-          role: 'tenant',
-          verified: false,
-          joinedAt: new Date().toISOString(),
-          createdAt: serverTimestamp(),
-          isNewUser: true
-        };
-        await setDoc(doc(db, 'users', firebaseUser.uid), profile);
-        setUserProfile(profile);
-        setNewUserId(firebaseUser.uid);
-        setShowRoleModal(true);
-      }
-      
-      // Redirect based on role
-      if (profile.role === 'admin') {
-        onNavigate('admin');
-      } else if (profile.role === 'agent' || profile.role === 'landlord') {
-        onNavigate('dashboard');
-      } else if (profile.role === 'tenant') {
-        onNavigate('tenant-dashboard');
-      } else {
-        onNavigate('home');
-      }
-    } catch (error: any) {
-      console.error("Login failed", error);
-      toast.error("Login failed. Please try again.");
-    }
-  };
-
-  const handleRoleSelected = (role: string) => {
-    setUserProfile((prev: any) => ({ ...prev, role }));
-    if (role === 'agent' || role === 'landlord') {
+  const handleLoginSuccess = (userData: any) => {
+    setUser(userData);
+    // Redirect based on role
+    if (userData.role === 'admin') {
+      onNavigate('admin');
+    } else if (userData.role === 'agent' || userData.role === 'landlord') {
       onNavigate('dashboard');
+    } else if (userData.role === 'tenant') {
+      onNavigate('tenant-dashboard');
     } else {
       onNavigate('home');
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      setUserProfile(null);
-      onNavigate('home');
-      toast.info("You have been logged out.");
-    } catch (error) {
-      console.error("Logout failed", error);
-      toast.error("Logout failed.");
-    }
+  const handleLogout = () => {
+    api.logout();
+    setUser(null);
+    onNavigate('landing');
+    toast.info("You have been logged out.");
   };
 
   return (
@@ -148,7 +60,7 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
       <div className="container mx-auto px-4 flex h-16 items-center justify-between">
         <div 
           className="flex items-center gap-2 cursor-pointer" 
-          onClick={() => onNavigate('home')}
+          onClick={() => onNavigate('landing')}
         >
           <Home className="h-6 w-6 text-primary" />
           <span className="text-xl font-bold tracking-tight text-primary">Nyumbani<span className="text-foreground">Hub</span></span>
@@ -167,9 +79,9 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
           </button>
           <button 
             onClick={() => {
-              if (!user) handleLogin();
+              if (!user) setShowAuthModal(true);
               else if (isAgentOrLandlord) onNavigate('dashboard');
-              else setShowRoleModal(true);
+              else onNavigate('home');
             }}
             className="text-sm font-medium text-slate-600 hover:text-primary transition-colors"
           >
@@ -201,7 +113,7 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
             </button>
           )}
 
-          {userProfile?.role === 'tenant' && (
+          {user?.role === 'tenant' && (
             <button 
               onClick={() => onNavigate('tenant-dashboard')}
               className={cn(
@@ -241,8 +153,8 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
                   <div className="flex flex-col space-y-1">
                     <p className="text-sm font-medium leading-none">{user.displayName}</p>
                     <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
-                    {userProfile && (
-                      <Badge variant="outline" className="w-fit mt-1 capitalize text-[10px] h-4">{userProfile.role}</Badge>
+                    {user && (
+                      <Badge variant="outline" className="w-fit mt-1 capitalize text-[10px] h-4">{user.role}</Badge>
                     )}
                   </div>
                 </DropdownMenuLabel>
@@ -263,7 +175,7 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
                     <span>Agent Dashboard</span>
                   </DropdownMenuItem>
                 )}
-                {userProfile?.role === 'tenant' && (
+                {user?.role === 'tenant' && (
                   <DropdownMenuItem onClick={() => onNavigate('tenant-dashboard')}>
                     <LayoutDashboard className="mr-2 h-4 w-4" />
                     <span>My Dashboard</span>
@@ -281,7 +193,7 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button onClick={handleLogin} size="sm" className="gap-2">
+            <Button onClick={() => setShowAuthModal(true)} size="sm" className="gap-2">
               <LogIn className="h-4 w-4" />
               Sign In
             </Button>
@@ -332,7 +244,7 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
             </button>
           )}
 
-          {userProfile?.role === 'tenant' && (
+          {user?.role === 'tenant' && (
             <button 
               onClick={() => { onNavigate('tenant-dashboard'); setIsMenuOpen(false); }}
               className="block w-full text-left text-sm font-medium py-2 text-primary"
@@ -351,7 +263,7 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
           )}
 
           {!user && (
-            <Button onClick={handleLogin} className="w-full gap-2">
+            <Button onClick={() => { setShowAuthModal(true); setIsMenuOpen(false); }} className="w-full gap-2">
               <LogIn className="h-4 w-4" />
               Sign In
             </Button>
@@ -365,11 +277,10 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
         </div>
       )}
 
-      <RoleSelectionModal 
-        isOpen={showRoleModal} 
-        onClose={() => setShowRoleModal(false)} 
-        userId={newUserId || ''} 
-        onRoleSelected={handleRoleSelected}
+      <AuthModal 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)} 
+        onSuccess={handleLoginSuccess}
       />
     </nav>
   );

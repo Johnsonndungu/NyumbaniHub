@@ -3,8 +3,7 @@ import { Property } from '@/src/types';
 import { PropertyCard } from './PropertyCard';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { db, isFirebaseConfigured } from '@/src/firebase';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { api } from '@/src/services/api';
 
 interface PropertyListProps {
   filters?: {
@@ -25,23 +24,19 @@ export function PropertyList({ filters, onNavigate }: PropertyListProps) {
       setLoading(true);
       setError(null);
 
+      // No longer needed for MySQL
+      /*
       if (!isFirebaseConfigured()) {
         setLoading(false);
         return;
       }
+      */
 
       try {
-        const propsRef = collection(db, 'properties');
-        let q = query(propsRef, orderBy('createdAt', 'desc'));
+        let data = await api.getProperties({ type: filters?.type });
+        if (!Array.isArray(data)) data = [];
 
-        if (filters?.type && filters.type !== 'all') {
-          q = query(q, where('type', '==', filters.type));
-        }
-
-        const snapshot = await getDocs(q);
-        let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Property));
-
-        // Client-side filtering for location and price range (Firestore has limits on multiple where clauses with different fields)
+        // Client-side filtering for location and price range
         if (filters?.location) {
           const loc = filters.location.toLowerCase();
           data = data.filter(p => p.location.toLowerCase().includes(loc));

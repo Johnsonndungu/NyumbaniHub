@@ -1,6 +1,4 @@
 import { useState, useEffect } from 'react';
-import { auth, db, isFirebaseConfigured } from '@/src/firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
 import { Property } from '@/src/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,7 +14,7 @@ import { MapPin, Bed, Bath, ShieldCheck, Star, CheckCircle2, Phone, Mail, Home }
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { api } from '@/src/services/api';
 
 interface PropertyDetailsProps {
   property: Property;
@@ -27,13 +25,11 @@ export function PropertyDetails({ property, onNavigate }: PropertyDetailsProps) 
   const [isApplying, setIsApplying] = useState(false);
   const [message, setMessage] = useState("");
   const [activeImage, setActiveImage] = useState(property.images[0]);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-    });
-    return () => unsubscribe();
+    const currentUser = api.getCurrentUser();
+    setUser(currentUser);
   }, []);
 
   const handleSendMessage = () => {
@@ -48,23 +44,16 @@ export function PropertyDetails({ property, onNavigate }: PropertyDetailsProps) 
       return;
     }
 
-    if (!isFirebaseConfigured()) {
-      toast.error("Firebase is not configured. Please check your settings.");
-      return;
-    }
-
     setIsApplying(true);
     try {
-      const appsRef = collection(db, 'applications');
-      await addDoc(appsRef, {
+      await api.createApplication({
         propertyId: property.id,
         propertyTitle: property.title,
-        tenantId: user.uid,
+        tenantId: user.id,
         tenantName: user.displayName || 'Anonymous User',
         tenantEmail: user.email,
         status: 'pending',
-        message: message || "I am interested in this property.",
-        createdAt: serverTimestamp()
+        message: message || "I am interested in this property."
       });
 
       toast.success("Application submitted!", {
@@ -214,19 +203,37 @@ export function PropertyDetails({ property, onNavigate }: PropertyDetailsProps) 
                 Submit your application directly to the {property.ownerType}. They will review your profile and get back to you within 24 hours.
               </p>
               <div className="space-y-4">
-                <textarea 
-                  className="w-full p-3 border rounded-lg text-sm min-h-[100px] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                  placeholder="Optional: Add a message to the agent..."
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                />
-                <Button 
-                  onClick={handleApply} 
-                  disabled={isApplying}
-                  className="w-full h-12 text-lg font-bold"
-                >
-                  {isApplying ? "Submitting..." : "Apply Now"}
-                </Button>
+                {!user ? (
+                  <div className="p-4 bg-primary/5 rounded-xl border border-primary/10 text-center">
+                    <p className="text-sm text-slate-600 mb-4">
+                      You need to be signed in to apply for this property.
+                    </p>
+                    <Button 
+                      className="w-full"
+                      onClick={() => {
+                        toast.info("Please use the Sign In button in the navigation bar to continue.");
+                      }}
+                    >
+                      Sign In to Apply
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <textarea 
+                      className="w-full p-3 border rounded-lg text-sm min-h-[100px] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                      placeholder="Optional: Add a message to the agent..."
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                    />
+                    <Button 
+                      onClick={handleApply} 
+                      disabled={isApplying}
+                      className="w-full h-12 text-lg font-bold"
+                    >
+                      {isApplying ? "Submitting..." : "Apply Now"}
+                    </Button>
+                  </>
+                )}
               </div>
               <p className="text-[10px] text-center text-slate-400 mt-4 uppercase tracking-widest">
                 Secure application powered by Nyumbani Hub

@@ -5,20 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Send, Search, MoreVertical, Phone, Video, Loader2, MessageSquare } from 'lucide-react';
-import { auth, db, isFirebaseConfigured } from '@/src/firebase';
+import { api } from '@/src/services/api';
 import { toast } from 'sonner';
-import { 
-  collection, 
-  query, 
-  where, 
-  onSnapshot, 
-  addDoc, 
-  getDocs,
-  serverTimestamp, 
-  orderBy,
-  limit,
-  or
-} from 'firebase/firestore';
 
 interface Message {
   id: string;
@@ -49,99 +37,87 @@ export function Chat() {
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const currentUser = auth.currentUser;
+  const currentUser = api.getCurrentUser();
 
   useEffect(() => {
-    if (!currentUser || !isFirebaseConfigured()) {
+    if (!currentUser) {
       setLoading(false);
       return;
     }
 
-    // In a real app, we'd have a 'conversations' collection
-    // For now, we'll derive conversations from messages or use a mock list if none exist
-    // Let's listen to messages where user is sender or receiver
-    const q = query(
-      collection(db, 'messages'),
-      or(
-        where('senderId', '==', currentUser.uid),
-        where('receiverId', '==', currentUser.uid)
-      ),
-      orderBy('createdAt', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-      
-      // Group by conversation
-      const convMap = new Map<string, Conversation>();
-      
-      // Fetch user details for each unique otherId
-      const otherIds = Array.from(new Set(msgs.map(m => m.senderId === currentUser.uid ? m.receiverId : m.senderId)));
-      
-      const userDetailsMap = new Map<string, { name: string; photoURL?: string }>();
-      
-      for (const id of otherIds) {
-        try {
-          const userDoc = await getDocs(query(collection(db, 'users'), where('uid', '==', id)));
-          if (!userDoc.empty) {
-            const userData = userDoc.docs[0].data();
-            userDetailsMap.set(id, {
+    const fetchConversations = async () => {
+      try {
+        const msgs = await api.getMessages(currentUser.id);
+        const safeMsgs = Array.isArray(msgs) ? msgs : [];
+        
+        // Group by conversation
+        const convMap = new Map<string, Conversation>();
+        
+        // Fetch user details for each unique otherId
+        const otherIds = Array.from(new Set(safeMsgs.map((m: any) => m.senderId === currentUser.id ? m.receiverId : m.senderId)));
+        
+        const userDetailsMap = new Map<string, { name: string; photoURL?: string }>();
+        
+        for (const id of otherIds) {
+          try {
+            const userData = await api.getUser(id as string);
+            userDetailsMap.set(id as string, {
               name: userData.displayName || 'Anonymous User',
               photoURL: userData.photoURL
             });
-          } else {
-            userDetailsMap.set(id, { name: 'User ' + id.slice(0, 4) });
+          } catch (err) {
+            console.error('Error fetching user details:', err);
+            userDetailsMap.set(id as string, { name: 'User ' + (id as string).slice(0, 4) });
           }
-        } catch (err) {
-          console.error('Error fetching user details:', err);
-          userDetailsMap.set(id, { name: 'User ' + id.slice(0, 4) });
         }
-      }
 
-      msgs.forEach(m => {
-        const otherId = m.senderId === currentUser.uid ? m.receiverId : m.senderId;
-        if (!convMap.has(otherId)) {
-          const details = userDetailsMap.get(otherId);
-          convMap.set(otherId, {
-            id: otherId,
-            otherUser: {
+        safeMsgs.forEach((m: any) => {
+          const otherId = m.senderId === currentUser.uid ? m.receiverId : m.senderId;
+          if (!convMap.has(otherId)) {
+            const details = userDetailsMap.get(otherId);
+            convMap.set(otherId, {
               id: otherId,
-              name: details?.name || 'User ' + otherId.slice(0, 4),
-              photoURL: details?.photoURL
-            },
-            lastMessage: m.text,
-            lastMessageAt: m.createdAt
-          });
-        }
-      });
+              otherUser: {
+                id: otherId,
+                name: details?.name || 'User ' + otherId.slice(0, 4),
+                photoURL: details?.photoURL
+              },
+              lastMessage: m.content,
+              lastMessageAt: m.createdAt
+            });
+          }
+        });
 
-      setConversations(Array.from(convMap.values()));
-      setLoading(false);
-    });
+        setConversations(Array.from(convMap.values()));
+      } catch (err) {
+        console.error('Error fetching conversations:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    return () => unsubscribe();
+    fetchConversations();
+    const interval = setInterval(fetchConversations, 5000);
+    return () => clearInterval(interval);
   }, [currentUser]);
 
   useEffect(() => {
     if (!activeConv || !currentUser) return;
 
-    const q = query(
-      collection(db, 'messages'),
-      or(
-        where('senderId', '==', currentUser.uid),
-        where('receiverId', '==', currentUser.uid)
-      ),
-      orderBy('createdAt', 'asc')
-    );
+    const fetchMessages = async () => {
+      try {
+        const msgs = await api.getMessages(currentUser.id);
+        const safeMsgs = Array.isArray(msgs) ? msgs : [];
+        const filtered = safeMsgs.filter((m: any) => (m.senderId === activeConv.id || m.receiverId === activeConv.id));
+        setMessages(filtered);
+      } catch (err) {
+        console.error(err);
+      }
+    };
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Message))
-        .filter(m => (m.senderId === activeConv.id || m.receiverId === activeConv.id));
-      setMessages(msgs);
-    });
-
-    return () => unsubscribe();
+    fetchMessages();
+    const interval = setInterval(fetchMessages, 3000);
+    return () => clearInterval(interval);
   }, [activeConv, currentUser]);
 
   useEffect(() => {
@@ -156,11 +132,10 @@ export function Chat() {
 
     setSending(true);
     try {
-      await addDoc(collection(db, 'messages'), {
-        senderId: currentUser.uid,
+      await api.sendMessage({
+        senderId: currentUser.id,
         receiverId: activeConv.id,
-        text: newMessage,
-        createdAt: serverTimestamp()
+        content: newMessage
       });
       setNewMessage('');
     } catch (err) {
@@ -247,7 +222,7 @@ export function Chat() {
             {/* Messages Area */}
             <div className="flex-1 p-4 overflow-y-auto space-y-4" ref={scrollRef}>
               {messages.map((msg) => {
-                const isMe = msg.senderId === (currentUser?.uid || 'agent1');
+                const isMe = msg.senderId === (currentUser?.id || 'agent1');
                 return (
                   <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[70%] p-3 rounded-2xl text-sm ${isMe ? 'bg-primary text-white rounded-tr-none' : 'bg-white text-slate-900 rounded-tl-none border shadow-sm'}`}>
