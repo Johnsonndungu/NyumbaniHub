@@ -92,6 +92,29 @@ db.exec(`
     FOREIGN KEY (senderId) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (receiverId) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS password_resets (
+    id TEXT PRIMARY KEY,
+    userId TEXT NOT NULL,
+    token TEXT NOT NULL,
+    expiresAt DATETIME NOT NULL,
+    used INTEGER DEFAULT 0,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS payments (
+    id TEXT PRIMARY KEY,
+    userId TEXT NOT NULL,
+    propertyId TEXT NOT NULL,
+    amount REAL NOT NULL,
+    purpose TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    transactionId TEXT,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (propertyId) REFERENCES properties(id) ON DELETE CASCADE
+  );
 `);
 
 export default db;

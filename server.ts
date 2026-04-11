@@ -6,8 +6,18 @@ import db from "./src/lib/db.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
+import Stripe from "stripe";
+import axios from "axios";
 
 const JWT_SECRET = process.env.JWT_SECRET || "nyumbani-hub-secret-key";
+
+let stripe: Stripe | null = null;
+const getStripe = () => {
+  if (!stripe && process.env.STRIPE_SECRET_KEY) {
+    stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  }
+  return stripe;
+};
 
 async function startServer() {
   const app = express();
@@ -59,6 +69,54 @@ async function startServer() {
       // Don't send password back
       const { password: _, ...userWithoutPassword } = user;
       res.json({ user: userWithoutPassword, token });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    const { email } = req.body;
+    try {
+      const user: any = db.prepare("SELECT id, email FROM users WHERE email = ?").get(email);
+      if (!user) {
+        // For security, don't reveal if user exists or not
+        return res.json({ message: "If an account exists with this email, a reset link has been sent." });
+      }
+
+      const token = uuidv4();
+      const expiresAt = new Date(Date.now() + 3600000).toISOString(); // 1 hour from now
+
+      const stmt = db.prepare(
+        "INSERT INTO password_resets (id, userId, token, expiresAt) VALUES (?, ?, ?, ?)"
+      );
+      stmt.run(uuidv4(), user.id, token, expiresAt);
+
+      // In a real app, send email here. For now, log it.
+      console.log(`[PASSWORD RESET] Link: http://localhost:3000/reset-password?token=${token}`);
+      
+      res.json({ message: "If an account exists with this email, a reset link has been sent." });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    const { token, newPassword } = req.body;
+    try {
+      const reset: any = db.prepare(
+        "SELECT * FROM password_resets WHERE token = ? AND used = 0 AND expiresAt > CURRENT_TIMESTAMP"
+      ).get(token);
+
+      if (!reset) {
+        return res.status(400).json({ error: "Invalid or expired token" });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      
+      db.prepare("UPDATE users SET password = ? WHERE id = ?").run(hashedPassword, reset.userId);
+      db.prepare("UPDATE password_resets SET used = 1 WHERE id = ?").run(reset.id);
+
+      res.json({ success: true, message: "Password has been reset successfully." });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -292,9 +350,136 @@ async function startServer() {
     }
   });
 
+  app.get("/api/payments", async (req, res) => {
+    const { userId, propertyId } = req.query;
+    try {
+      let sql = "SELECT p.*, pr.title as propertyTitle, u.displayName as tenantName FROM payments p JOIN properties pr ON p.propertyId = pr.id JOIN users u ON p.userId = u.id";
+      const values: any[] = [];
+      const conditions: string[] = [];
+      
+      if (userId) { conditions.push("pr.ownerId = ?"); values.push(userId); }
+      if (propertyId) { conditions.push("p.propertyId = ?"); values.push(propertyId); }
+      
+      if (conditions.length > 0) sql += " WHERE " + conditions.join(" AND ");
+      sql += " ORDER BY p.createdAt DESC";
+      
+      const rows = db.prepare(sql).all(...values);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // --- Payment Routes ---
+
+  // M-Pesa OAuth Token Helper
+  const getMpesaToken = async () => {
+    const consumerKey = process.env.MPESA_CONSUMER_KEY;
+    const consumerSecret = process.env.MPESA_CONSUMER_SECRET;
+    if (!consumerKey || !consumerSecret) throw new Error("M-Pesa credentials missing");
+
+    const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString("base64");
+    const response = await axios.get(
+      "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials",
+      { headers: { Authorization: `Basic ${auth}` } }
+    );
+    return response.data.access_token;
+  };
+
+  app.post("/api/payments/mpesa/stkpush", async (req, res) => {
+    const { phoneNumber, amount, propertyId, userId, purpose } = req.body;
+    try {
+      const token = await getMpesaToken();
+      const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14);
+      const shortcode = process.env.MPESA_SHORTCODE || "174379";
+      const passkey = process.env.MPESA_PASSKEY;
+      if (!passkey) throw new Error("M-Pesa passkey missing");
+
+      const password = Buffer.from(`${shortcode}${passkey}${timestamp}`).toString("base64");
+      const callbackUrl = process.env.MPESA_CALLBACK_URL || `${process.env.APP_URL}/api/payments/mpesa/callback`;
+
+      const response = await axios.post(
+        "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+        {
+          BusinessShortCode: shortcode,
+          Password: password,
+          Timestamp: timestamp,
+          TransactionType: "CustomerPayBillOnline",
+          Amount: amount,
+          PartyA: phoneNumber,
+          PartyB: shortcode,
+          PhoneNumber: phoneNumber,
+          CallBackURL: callbackUrl,
+          AccountReference: `NyumbaniHub-${propertyId.slice(0, 5)}`,
+          TransactionDesc: `Payment for ${purpose}`,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // Record pending payment
+      const paymentId = uuidv4();
+      db.prepare(
+        "INSERT INTO payments (id, userId, propertyId, amount, purpose, status, transactionId) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(paymentId, userId, propertyId, amount, purpose, "pending", response.data.CheckoutRequestID);
+
+      res.json({ success: true, checkoutRequestId: response.data.CheckoutRequestID, paymentId });
+    } catch (err: any) {
+      console.error("M-Pesa STK Push Error:", err.response?.data || err.message);
+      res.status(500).json({ error: "M-Pesa initiation failed. Please check your network and try again." });
+    }
+  });
+
+  app.get("/api/payments/status/:id", async (req, res) => {
+    try {
+      const payment: any = db.prepare("SELECT * FROM payments WHERE id = ?").get(req.params.id);
+      if (!payment) return res.status(404).json({ error: "Payment not found" });
+      res.json(payment);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/payments/stripe/create-intent", async (req, res) => {
+    const { amount, propertyId, userId, purpose } = req.body;
+    const stripeClient = getStripe();
+    if (!stripeClient) {
+      return res.status(500).json({ error: "Stripe is not configured on the server." });
+    }
+
+    try {
+      const paymentIntent = await stripeClient.paymentIntents.create({
+        amount: Math.round(amount * 100), // Stripe expects cents
+        currency: "kes",
+        metadata: { propertyId, userId, purpose },
+      });
+
+      // Record pending payment
+      const paymentId = uuidv4();
+      db.prepare(
+        "INSERT INTO payments (id, userId, propertyId, amount, purpose, status, transactionId) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(paymentId, userId, propertyId, amount, purpose, "pending", paymentIntent.id);
+
+      res.json({ clientSecret: paymentIntent.client_secret, paymentId });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Webhook or manual update for demo purposes
+  app.patch("/api/payments/:id", async (req, res) => {
+    const { status, transactionId } = req.body;
+    try {
+      db.prepare("UPDATE payments SET status = ?, transactionId = COALESCE(?, transactionId) WHERE id = ?")
+        .run(status, transactionId, req.params.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Vite middleware for development

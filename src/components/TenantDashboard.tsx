@@ -16,10 +16,12 @@ import {
   ArrowRight,
   Loader2,
   Calendar,
-  MapPin
+  MapPin,
+  CreditCard
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
+import { PaymentModal } from './PaymentModal';
 
 interface Application {
   id: string;
@@ -39,6 +41,17 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'applications' | 'saved' | 'settings'>('overview');
   const [user, setUser] = useState<any>(null);
+  const [paymentConfig, setPaymentConfig] = useState<{
+    isOpen: boolean;
+    amount: number;
+    propertyId: string;
+    purpose: 'deposit' | 'rent';
+  }>({
+    isOpen: false,
+    amount: 0,
+    propertyId: '',
+    purpose: 'deposit'
+  });
 
   useEffect(() => {
     const currentUser = api.getCurrentUser();
@@ -291,14 +304,30 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
                                 "{app.message}"
                               </p>
                             </div>
-                            <div className="flex flex-row md:flex-col gap-2 justify-end">
-                              <Button variant="outline" size="sm" onClick={() => onNavigate('messages')}>
-                                <MessageSquare className="h-4 w-4 mr-2" /> Chat with Agent
-                              </Button>
-                              <Button variant="ghost" size="sm" className="text-slate-500">
-                                View Property
-                              </Button>
-                            </div>
+                              <div className="flex flex-row md:flex-col gap-2 justify-end">
+                                {app.status === 'approved' && (
+                                  <Button 
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                    size="sm"
+                                    onClick={() => {
+                                      setPaymentConfig({
+                                        isOpen: true,
+                                        amount: 50000, // Mock amount, should be fetched from property
+                                        propertyId: app.propertyId,
+                                        purpose: 'deposit'
+                                      });
+                                    }}
+                                  >
+                                    <CreditCard className="h-4 w-4 mr-2" /> Pay Deposit
+                                  </Button>
+                                )}
+                                <Button variant="outline" size="sm" onClick={() => onNavigate('messages')}>
+                                  <MessageSquare className="h-4 w-4 mr-2" /> Chat with Agent
+                                </Button>
+                                <Button variant="ghost" size="sm" className="text-slate-500">
+                                  View Property
+                                </Button>
+                              </div>
                           </div>
                         </CardContent>
                       </Card>
@@ -373,6 +402,18 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
           )}
         </main>
       </div>
+
+      <PaymentModal 
+        isOpen={paymentConfig.isOpen}
+        onClose={() => setPaymentConfig({ ...paymentConfig, isOpen: false })}
+        amount={paymentConfig.amount}
+        propertyId={paymentConfig.propertyId}
+        purpose={paymentConfig.purpose}
+        onSuccess={() => {
+          setPaymentConfig({ ...paymentConfig, isOpen: false });
+          fetchTenantData(user.id);
+        }}
+      />
     </div>
   );
 }

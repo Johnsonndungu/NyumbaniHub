@@ -6,6 +6,7 @@ import { AgentDashboard } from './components/AgentDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { TenantDashboard } from './components/TenantDashboard';
 import { LandingPage } from './components/LandingPage';
+import { ResetPassword } from './components/ResetPassword';
 import { Chat } from './components/Chat';
 import { Footer } from './components/Footer';
 import { ShieldCheck, UserCheck, CreditCard, Search } from 'lucide-react';
@@ -69,7 +70,7 @@ function FeatureSection() {
 }
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'landing' | 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard'>('landing');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard' | 'reset-password'>('landing');
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -79,6 +80,12 @@ export default function App() {
   });
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token) {
+      setCurrentPage('reset-password');
+    }
+    
     const currentUser = api.getCurrentUser();
     setUser(currentUser);
     setLoading(false);
@@ -146,6 +153,8 @@ export default function App() {
           <div className="container mx-auto px-4 py-12">
             <Chat />
           </div>
+        ) : currentPage === 'reset-password' ? (
+          <ResetPassword onSuccess={() => setCurrentPage('landing')} />
         ) : (
           <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
             <ShieldCheck className="h-16 w-16 text-primary mb-4 opacity-20" />

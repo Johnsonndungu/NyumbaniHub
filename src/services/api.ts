@@ -44,9 +44,88 @@ export const api = {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
   },
+  forgotPassword: async (email: string) => {
+    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Request failed');
+    }
+    return res.json();
+  },
+  resetPassword: async (data: any) => {
+    const res = await fetch(`${API_BASE}/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Reset failed');
+    }
+    return res.json();
+  },
   getCurrentUser: () => {
     const user = localStorage.getItem('user');
     return user ? JSON.parse(user) : null;
+  },
+
+  // Payments
+  initiateMpesa: async (data: any) => {
+    const res = await fetch(`${API_BASE}/payments/mpesa/stkpush`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'M-Pesa initiation failed');
+    }
+    return res.json();
+  },
+  createStripeIntent: async (data: any) => {
+    const res = await fetch(`${API_BASE}/payments/stripe/create-intent`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Stripe intent creation failed');
+    }
+    return res.json();
+  },
+  getPaymentStatus: async (id: string) => {
+    const res = await fetch(`${API_BASE}/payments/status/${id}`, { headers: getHeaders() });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Failed to fetch payment status');
+    }
+    return res.json();
+  },
+  updatePaymentStatus: async (id: string, data: any) => {
+    const res = await fetch(`${API_BASE}/payments/${id}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Failed to update payment');
+    }
+    return res.json();
+  },
+  getPayments: async (filters: any = {}) => {
+    const params = new URLSearchParams(filters);
+    const res = await fetch(`${API_BASE}/payments?${params}`, { headers: getHeaders() });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Failed to fetch payments');
+    }
+    return res.json();
   },
 
   // Users

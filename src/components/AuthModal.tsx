@@ -20,7 +20,7 @@ interface AuthModalProps {
 }
 
 export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
-  const [isLogin, setIsLogin] = useState(true);
+  const [mode, setMode] = useState<'login' | 'signup' | 'forgot-password'>('login');
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
@@ -33,8 +33,15 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     e.preventDefault();
     setLoading(true);
     try {
+      if (mode === 'forgot-password') {
+        const res = await api.forgotPassword(formData.email);
+        toast.success(res.message);
+        setMode('login');
+        return;
+      }
+
       let data;
-      if (isLogin) {
+      if (mode === 'login') {
         data = await api.login({ email: formData.email, password: formData.password });
         toast.success(`Welcome back, ${data.user.displayName}!`);
       } else {
@@ -50,20 +57,35 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     }
   };
 
+  const getTitle = () => {
+    if (mode === 'login') return 'Welcome Back';
+    if (mode === 'signup') return 'Create Account';
+    return 'Reset Password';
+  };
+
+  const getDescription = () => {
+    if (mode === 'login') return 'Enter your credentials to access your account.';
+    if (mode === 'signup') return 'Join Nyumbani Hub to find your next home.';
+    return 'Enter your email to receive a password reset link.';
+  };
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      if (!open) {
+        onClose();
+        setMode('login');
+      }
+    }}>
       <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-serif">{isLogin ? 'Welcome Back' : 'Create Account'}</DialogTitle>
+          <DialogTitle className="text-2xl font-serif">{getTitle()}</DialogTitle>
           <DialogDescription>
-            {isLogin 
-              ? 'Enter your credentials to access your account.' 
-              : 'Join Nyumbani Hub to find your next home.'}
+            {getDescription()}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 py-4">
-          {!isLogin && (
+          {mode === 'signup' && (
             <div className="space-y-2">
               <Label htmlFor="displayName">Full Name</Label>
               <div className="relative">
@@ -96,23 +118,36 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                className="pl-10"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                required
-              />
+          {mode !== 'forgot-password' && (
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <Label htmlFor="password">Password</Label>
+                {mode === 'login' && (
+                  <button 
+                    type="button" 
+                    className="text-xs text-primary hover:underline"
+                    onClick={() => setMode('forgot-password')}
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  className="pl-10"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  required
+                />
+              </div>
             </div>
-          </div>
+          )}
 
-          {!isLogin && (
+          {mode === 'signup' && (
             <div className="space-y-2">
               <Label htmlFor="role">I am a...</Label>
               <select
@@ -130,20 +165,20 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isLogin ? 'Sign In' : 'Create Account'}
+            {mode === 'login' ? 'Sign In' : mode === 'signup' ? 'Create Account' : 'Send Reset Link'}
           </Button>
         </form>
 
         <div className="text-center text-sm">
           <span className="text-slate-500">
-            {isLogin ? "Don't have an account? " : "Already have an account? "}
+            {mode === 'login' ? "Don't have an account? " : mode === 'signup' ? "Already have an account? " : "Remember your password? "}
           </span>
           <button
             type="button"
             className="text-primary font-bold hover:underline"
-            onClick={() => setIsLogin(!isLogin)}
+            onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}
           >
-            {isLogin ? 'Sign Up' : 'Sign In'}
+            {mode === 'signup' ? 'Sign In' : 'Sign Up'}
           </button>
         </div>
       </DialogContent>

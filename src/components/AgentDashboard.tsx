@@ -22,7 +22,8 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  Loader2
+  Loader2,
+  CreditCard
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
@@ -33,10 +34,11 @@ import { api } from '@/src/services/api';
 export function AgentDashboard() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'listings' | 'messages' | 'tenants' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'listings' | 'messages' | 'tenants' | 'settings' | 'payments'>('dashboard');
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
@@ -64,6 +66,10 @@ export function AgentDashboard() {
       const propIds = safeProps.map((p: any) => p.id);
       const filteredApps = safeApps.filter((app: any) => propIds.includes(app.propertyId));
       setApplications(filteredApps);
+
+      // Fetch payments
+      const paysData = await api.getPayments({ userId });
+      setPayments(Array.isArray(paysData) ? paysData : []);
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
       toast.error('Failed to load dashboard data');
@@ -138,6 +144,13 @@ export function AgentDashboard() {
             className={`w-full justify-start gap-3 ${activeTab === 'tenants' ? 'bg-primary/5 text-primary' : ''}`}
           >
             <Users className="h-4 w-4" /> Tenants
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setActiveTab('payments')}
+            className={`w-full justify-start gap-3 ${activeTab === 'payments' ? 'bg-primary/5 text-primary' : ''}`}
+          >
+            <CreditCard className="h-4 w-4" /> Payments
           </Button>
           <Button 
             variant="ghost" 
@@ -322,6 +335,58 @@ export function AgentDashboard() {
               <p className="text-slate-500">Chat with potential tenants and clients.</p>
             </div>
             <Chat />
+          </div>
+        )}
+
+        {activeTab === 'payments' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">Payments Received</h1>
+                <p className="text-slate-500">Track all rent and deposit payments from your tenants.</p>
+              </div>
+              <Badge variant="outline" className="text-lg py-1 px-4">{payments.length} Transactions</Badge>
+            </div>
+            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b">
+                  <tr>
+                    <th className="p-4 font-bold text-sm">Tenant</th>
+                    <th className="p-4 font-bold text-sm">Property</th>
+                    <th className="p-4 font-bold text-sm">Amount</th>
+                    <th className="p-4 font-bold text-sm">Purpose</th>
+                    <th className="p-4 font-bold text-sm">Status</th>
+                    <th className="p-4 font-bold text-sm">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((pay) => (
+                    <tr key={pay.id} className="border-b last:border-0">
+                      <td className="p-4 text-sm font-medium">{pay.tenantName}</td>
+                      <td className="p-4 text-sm">{pay.propertyTitle}</td>
+                      <td className="p-4 text-sm font-bold">KSh {pay.amount.toLocaleString()}</td>
+                      <td className="p-4 text-sm capitalize">{pay.purpose}</td>
+                      <td className="p-4 text-sm">
+                        <Badge className={pay.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}>
+                          {pay.status}
+                        </Badge>
+                      </td>
+                      <td className="p-4 text-sm text-slate-500">
+                        {new Date(pay.createdAt).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                  {payments.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="p-12 text-center text-slate-500">
+                        <CreditCard className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                        <p>No payments received yet.</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
