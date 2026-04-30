@@ -151,7 +151,10 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
               <DropdownMenuContent className="w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{user.displayName}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium leading-none">{user.displayName}</p>
+                      {user.isVerified && <ShieldCheck className="h-3 w-3 text-emerald-500" />}
+                    </div>
                     <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
                     {user && (
                       <Badge variant="outline" className="w-fit mt-1 capitalize text-[10px] h-4">{user.role}</Badge>

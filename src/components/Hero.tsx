@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, MapPin, Home, Banknote } from 'lucide-react';
+import { Search, MapPin, Home, Banknote, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -12,16 +12,17 @@ import {
 import { motion } from 'motion/react';
 
 interface HeroProps {
-  onSearch: (filters: { location: string; type: string; priceRange: string }) => void;
+  onSearch: (filters: { location: string; country: string; type: string; priceRange: string }) => void;
 }
 
 export function Hero({ onSearch }: HeroProps) {
   const [location, setLocation] = useState('');
+  const [country, setCountry] = useState('all');
   const [type, setType] = useState('all');
   const [priceRange, setPriceRange] = useState('all');
 
   const handleSearch = () => {
-    onSearch({ location, type, priceRange });
+    onSearch({ location, country, type, priceRange });
     // Scroll to property list
     const element = document.getElementById('property-list');
     if (element) {
@@ -44,7 +45,7 @@ export function Hero({ onSearch }: HeroProps) {
             transition={{ duration: 0.5 }}
             className="text-4xl font-bold tracking-tight text-white sm:text-6xl"
           >
-            Find Your Perfect <span className="text-primary">Nyumbani</span> in Kenya
+            Find Your Perfect <span className="text-primary">Nyumbani</span>
           </motion.h1>
           <motion.p 
             initial={{ opacity: 0, y: 20 }}
@@ -52,7 +53,7 @@ export function Hero({ onSearch }: HeroProps) {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="mt-6 text-lg leading-8 text-slate-300"
           >
-            Verified listings, secure payments, and trusted agents. Whether you're looking for an apartment in Kilimani or a house in Nyali, we've got you covered.
+            Verified listings, secure payments, and trusted agents across Kenya, USA, and Sierra Leone.
           </motion.p>
         </div>
 
@@ -60,20 +61,37 @@ export function Hero({ onSearch }: HeroProps) {
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5, delay: 0.2 }}
-          className="mx-auto mt-16 max-w-4xl"
+          className="mx-auto mt-16 max-w-5xl"
         >
           <div className="rounded-2xl bg-white p-4 shadow-2xl md:p-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-2">
                   <MapPin className="h-3 w-3" /> Location
                 </label>
                 <Input 
-                  placeholder="e.g. Westlands, Nairobi" 
+                  placeholder="e.g. Westlands" 
                   className="border-slate-200" 
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                  <Globe className="h-3 w-3" /> Country
+                </label>
+                <Select value={country} onValueChange={setCountry}>
+                  <SelectTrigger className="border-slate-200">
+                    <SelectValue placeholder="Any Country" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any Country</SelectItem>
+                    <SelectItem value="Kenya">Kenya</SelectItem>
+                    <SelectItem value="USA">USA</SelectItem>
+                    <SelectItem value="Sierra Leone">Sierra Leone</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               
               <div className="space-y-2">

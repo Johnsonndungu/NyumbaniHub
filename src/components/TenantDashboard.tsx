@@ -3,6 +3,7 @@ import { api } from '@/src/services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   Home, 
   MessageSquare, 
@@ -17,10 +18,12 @@ import {
   Loader2,
   Calendar,
   MapPin,
-  CreditCard
+  CreditCard,
+  AlertTriangle,
+  Send
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { PaymentModal } from './PaymentModal';
 
 interface Application {
@@ -41,6 +44,13 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'applications' | 'saved' | 'settings'>('overview');
   const [user, setUser] = useState<any>(null);
+  const [profileData, setProfileData] = useState({
+    displayName: '',
+    phoneNumber: '',
+    country: '',
+    photoURL: ''
+  });
+  const [saving, setSaving] = useState(false);
   const [paymentConfig, setPaymentConfig] = useState<{
     isOpen: boolean;
     amount: number;
@@ -57,11 +67,32 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
     const currentUser = api.getCurrentUser();
     setUser(currentUser);
     if (currentUser) {
+      setProfileData({
+        displayName: currentUser.displayName || '',
+        phoneNumber: currentUser.phoneNumber || '',
+        country: currentUser.country || '',
+        photoURL: currentUser.photoURL || ''
+      });
       fetchTenantData(currentUser.id);
     } else {
       setLoading(false);
     }
   }, []);
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      const updatedUser = await api.updateUser(user.id, profileData);
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser)); // Sync with navbar
+      toast.success('Profile updated successfully!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update profile');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const fetchTenantData = async (userId: string) => {
     try {
@@ -105,7 +136,40 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col md:flex-row gap-8">
+      <AnimatePresence>
+        {user && !user.emailVerified && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="bg-amber-500 text-white overflow-hidden fixed top-0 left-0 right-0 z-[60]"
+          >
+            <div className="container mx-auto px-4 py-2 flex items-center justify-between text-sm font-medium">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Please verify your email with the 6-digit code we sent you.</span>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="text-white hover:bg-white/20 h-7 text-xs gap-1"
+                onClick={async () => {
+                  try {
+                    await api.resendVerification(user.email);
+                    toast.success('Verification code sent!');
+                  } catch (err: any) {
+                    toast.error(err.message);
+                  }
+                }}
+              >
+                <Send className="h-3 w-3" /> Resend Code
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className={`flex flex-col md:flex-row gap-8 ${user && !user.emailVerified ? 'mt-8' : ''}`}>
         {/* Sidebar */}
         <aside className="w-full md:w-64 space-y-2">
           <div className="p-4 mb-6 bg-primary/5 rounded-2xl border border-primary/10">
@@ -361,18 +425,36 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
                 <CardDescription>Manage your personal information and preferences</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                <div className="flex flex-col md:flex-row items-start md:items-center gap-6 pb-6 border-b">
+                  <Avatar className="h-20 w-20">
+                    <AvatarImage src={profileData.photoURL} />
+                    <AvatarFallback className="text-xl">{profileData.displayName?.charAt(0) || 'U'}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 space-y-2">
+                    <label className="text-sm font-medium">Profile Picture URL</label>
+                    <input 
+                      className="w-full p-2 border rounded-lg" 
+                      placeholder="https://example.com/avatar.jpg"
+                      value={profileData.photoURL}
+                      onChange={(e) => setProfileData({ ...profileData, photoURL: e.target.value })}
+                    />
+                    <p className="text-xs text-slate-500">Provide a URL for your profile picture.</p>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Full Name</label>
                     <input 
                       className="w-full p-2 border rounded-lg" 
-                      defaultValue={user.displayName} 
+                      value={profileData.displayName}
+                      onChange={(e) => setProfileData({ ...profileData, displayName: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Email Address</label>
                     <input 
-                      className="w-full p-2 border rounded-lg bg-slate-50" 
+                      className="w-full p-2 border rounded-lg bg-slate-50 text-slate-500 cursor-not-allowed" 
                       defaultValue={user.email} 
                       disabled 
                     />
@@ -382,19 +464,33 @@ export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
                     <input 
                       className="w-full p-2 border rounded-lg" 
                       placeholder="+254 700 000 000" 
+                      value={profileData.phoneNumber}
+                      onChange={(e) => setProfileData({ ...profileData, phoneNumber: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Preferred Location</label>
+                    <label className="text-sm font-medium">Country</label>
                     <input 
                       className="w-full p-2 border rounded-lg" 
-                      placeholder="e.g., Kilimani, Westlands" 
+                      placeholder="Kenya" 
+                      value={profileData.country}
+                      onChange={(e) => setProfileData({ ...profileData, country: e.target.value })}
                     />
                   </div>
                 </div>
                 <div className="pt-4 border-t">
-                  <Button className="gap-2">
-                    Save Changes
+                  <Button 
+                    className="gap-2" 
+                    onClick={handleSaveProfile}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" /> Saving...
+                      </>
+                    ) : (
+                      'Save Profile'
+                    )}
                   </Button>
                 </div>
               </CardContent>

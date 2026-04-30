@@ -8,10 +8,11 @@ import { api } from '@/src/services/api';
 interface PropertyListProps {
   filters?: {
     location: string;
+    country: string;
     type: string;
     priceRange: string;
   };
-  onNavigate?: (page: 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard') => void;
+  onNavigate?: (page: any) => void;
 }
 
 export function PropertyList({ filters, onNavigate }: PropertyListProps) {
@@ -33,7 +34,7 @@ export function PropertyList({ filters, onNavigate }: PropertyListProps) {
       */
 
       try {
-        let data = await api.getProperties({ type: filters?.type });
+        let data = await api.getProperties({ type: filters?.type, country: filters?.country });
         if (!Array.isArray(data)) data = [];
 
         // Client-side filtering for location and price range
@@ -73,7 +74,7 @@ export function PropertyList({ filters, onNavigate }: PropertyListProps) {
         <div className="flex flex-col md:flex-row justify-between items-end mb-10 gap-4">
           <div>
             <h2 className="text-3xl font-bold tracking-tight text-slate-900">Featured Listings</h2>
-            <p className="text-slate-500 mt-2">Discover the best properties across Kenya handpicked for you.</p>
+            <p className="text-slate-500 mt-2">Discover the best properties across Kenya, USA, and Sierra Leone.</p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm">Newest</Button>
@@ -91,6 +92,19 @@ export function PropertyList({ filters, onNavigate }: PropertyListProps) {
           <div className="text-center py-20">
             <p className="text-destructive font-medium">{error}</p>
             <Button variant="link" onClick={() => window.location.reload()}>Try Again</Button>
+          </div>
+        ) : properties.length === 0 ? (
+          <div className="text-center py-20 bg-white rounded-xl border border-dashed border-slate-300">
+            <h3 className="text-xl font-semibold text-slate-800">No properties found</h3>
+            <p className="text-slate-500 mt-2">We couldn't find any properties matching your criteria.</p>
+            <p className="text-slate-500">Please adjust your filters or check back later!</p>
+            <Button 
+              variant="outline" 
+              className="mt-6"
+              onClick={() => window.location.reload()}
+            >
+              Show all properties
+            </Button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">

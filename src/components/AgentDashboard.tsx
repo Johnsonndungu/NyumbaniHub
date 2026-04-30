@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Property, Application } from '@/src/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,13 +23,19 @@ import {
   XCircle,
   Clock,
   Loader2,
-  CreditCard
+  CreditCard,
+  AlertTriangle,
+  Send,
+  User as UserIcon,
+  File as FileIcon,
+  Upload
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { Chat } from './Chat';
 import { NewListingForm } from './NewListingForm';
 import { api } from '@/src/services/api';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 export function AgentDashboard() {
   const [properties, setProperties] = useState<Property[]>([]);
@@ -40,16 +46,65 @@ export function AgentDashboard() {
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'listings' | 'messages' | 'tenants' | 'settings' | 'payments'>('dashboard');
   const [user, setUser] = useState<any>(null);
+  const [profileData, setProfileData] = useState({
+    displayName: '',
+    phoneNumber: '',
+    country: '',
+    photoURL: '',
+    documentURL: '',
+    documentType: ''
+  });
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     const currentUser = api.getCurrentUser();
     setUser(currentUser);
     if (currentUser) {
+      setProfileData({
+        displayName: currentUser.displayName || '',
+        phoneNumber: currentUser.phoneNumber || '',
+        country: currentUser.country || '',
+        photoURL: currentUser.photoURL || '',
+        documentURL: currentUser.documentURL || '',
+        documentType: currentUser.documentType || ''
+      });
       fetchDashboardData(currentUser.id);
     } else {
       setLoading(false);
     }
   }, []);
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      const updatedUser = await api.updateUser(user.id, profileData);
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      toast.success('Profile updated successfully!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const { url } = await api.uploadFile(file);
+      setProfileData(prev => ({ ...prev, documentURL: url }));
+      toast.success('Document uploaded successfully!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to upload document');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const fetchDashboardData = async (userId: string) => {
     try {
@@ -118,8 +173,41 @@ export function AgentDashboard() {
 
   return (
     <div className="flex min-h-screen bg-slate-50">
+      <AnimatePresence>
+        {user && !user.emailVerified && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="bg-amber-500 text-white overflow-hidden fixed top-0 left-0 right-0 z-[60]"
+          >
+            <div className="container mx-auto px-4 py-2 flex items-center justify-between text-sm font-medium">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Please verify your email with the 6-digit code we sent you.</span>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="text-white hover:bg-white/20 h-7 text-xs gap-1"
+                onClick={async () => {
+                  try {
+                    await api.resendVerification(user.email);
+                    toast.success('Verification code sent!');
+                  } catch (err: any) {
+                    toast.error(err.message);
+                  }
+                }}
+              >
+                <Send className="h-3 w-3" /> Resend Code
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r hidden md:block">
+      <aside className={`w-64 bg-white border-r hidden md:block ${user && !user.emailVerified ? 'mt-9' : ''}`}>
         <div className="p-6">
           <h2 className="text-xl font-bold text-primary">Agent Portal</h2>
         </div>
@@ -171,40 +259,61 @@ export function AgentDashboard() {
 
       {/* Main Content */}
       <main className="flex-1 p-8">
+        <Dialog open={isDialogOpen} onOpenChange={(open) => {
+          if (open && !user?.isVerified) {
+            toast.error("Account verification required. Please wait for an admin to verify your account.");
+            return;
+          }
+          setIsDialogOpen(open);
+          if (!open) setEditingProperty(null);
+        }}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{editingProperty ? 'Edit Property Listing' : 'Add New Property Listing'}</DialogTitle>
+              <DialogDescription>
+                {editingProperty ? 'Update the details of your property listing.' : 'Fill in the details below to list a new property on Nyumbani Hub.'}
+              </DialogDescription>
+            </DialogHeader>
+            <NewListingForm 
+              property={editingProperty || undefined}
+              onSuccess={handleNewListingSuccess} 
+              onCancel={() => {
+                setIsDialogOpen(false);
+                setEditingProperty(null);
+              }} 
+            />
+          </DialogContent>
+        </Dialog>
+
         {activeTab === 'dashboard' && (
           <>
             <div className="flex justify-between items-center mb-8">
               <div>
                 <h1 className="text-2xl font-bold text-slate-900">Welcome back, {user?.displayName || 'Partner'}</h1>
                 <p className="text-slate-500">Here's what's happening with your properties today.</p>
+                {user && !user.isVerified && (
+                  <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3 text-amber-800 text-sm max-w-2xl animate-in fade-in slide-in-from-top-2 duration-500">
+                    <div className="p-2 bg-amber-100 rounded-lg">
+                      <AlertTriangle className="h-5 w-5 text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="font-bold mb-0.5">Verification Pending</p>
+                      <p className="opacity-80">Your account is currently under review. Please ensure you have uploaded your verification documents in the <button onClick={() => setActiveTab('settings')} className="font-bold underline">Settings</button> tab. Some features may be limited until verified.</p>
+                    </div>
+                  </div>
+                )}
               </div>
               
-              <Dialog open={isDialogOpen} onOpenChange={(open) => {
-                setIsDialogOpen(open);
-                if (!open) setEditingProperty(null);
-              }}>
-                <DialogTrigger render={
-                  <Button className="gap-2" onClick={() => setEditingProperty(null)}>
-                    <Plus className="h-4 w-4" /> Add New Listing
-                  </Button>
-                } />
-                <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle>{editingProperty ? 'Edit Property Listing' : 'Add New Property Listing'}</DialogTitle>
-                    <DialogDescription>
-                      {editingProperty ? 'Update the details of your property listing.' : 'Fill in the details below to list a new property on Nyumbani Hub.'}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <NewListingForm 
-                    property={editingProperty || undefined}
-                    onSuccess={handleNewListingSuccess} 
-                    onCancel={() => {
-                      setIsDialogOpen(false);
-                      setEditingProperty(null);
-                    }} 
-                  />
-                </DialogContent>
-              </Dialog>
+              <Button 
+                className="gap-2" 
+                onClick={() => {
+                  setEditingProperty(null);
+                  setIsDialogOpen(true);
+                }}
+                disabled={user && !user.isVerified}
+              >
+                <Plus className="h-4 w-4" /> Add New Listing
+              </Button>
             </div>
 
             {/* Stats */}
@@ -397,10 +506,18 @@ export function AgentDashboard() {
                 <h1 className="text-2xl font-bold text-slate-900">My Listings</h1>
                 <p className="text-slate-500">Manage all your properties in one place.</p>
               </div>
-              <Button onClick={() => {
-                setEditingProperty(null);
-                setIsDialogOpen(true);
-              }} className="gap-2">
+              <Button 
+                onClick={() => {
+                  if (!user?.isVerified) {
+                    toast.error("Account verification required. Please wait for an admin to verify your account.");
+                    return;
+                  }
+                  setEditingProperty(null);
+                  setIsDialogOpen(true);
+                }} 
+                className="gap-2"
+                disabled={user && !user.isVerified}
+              >
                 <Plus className="h-4 w-4" /> Add New Listing
               </Button>
             </div>
@@ -491,9 +608,110 @@ export function AgentDashboard() {
                   <CardTitle>Agency Profile</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h4 className="font-bold text-slate-900">Verification Documents</h4>
+                        <p className="text-xs text-slate-500">
+                          {user?.role === 'agent' 
+                            ? 'Upload Government Certificate of Registration' 
+                            : 'Upload ID, Passport or Driving License'}
+                        </p>
+                      </div>
+                      <div className="p-2 bg-white rounded-lg border">
+                        <FileIcon className="h-5 w-5 text-slate-400" />
+                      </div>
+                    </div>
+
+                    <div className="mb-4">
+                      <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">Document Type</label>
+                      <select 
+                        className="w-full p-2 text-sm border rounded-lg bg-white"
+                        value={profileData.documentType}
+                        onChange={(e) => setProfileData({ ...profileData, documentType: e.target.value })}
+                      >
+                        <option value="">Select document type...</option>
+                        {user?.role === 'agent' ? (
+                          <option value="registration_cert">Certificate of Registration</option>
+                        ) : (
+                          <>
+                            <option value="national_id">National ID Card</option>
+                            <option value="passport">Passport</option>
+                            <option value="driving_license">Driving License</option>
+                          </>
+                        )}
+                        <option value="other">Other Supporting Document</option>
+                      </select>
+                    </div>
+                    
+                    {profileData.documentURL ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 p-3 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-100 text-sm">
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span className="flex-1 truncate">Document uploaded</span>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-7 text-xs"
+                            onClick={() => setProfileData(p => ({ ...p, documentURL: '' }))}
+                          >Change</Button>
+                        </div>
+                        <a 
+                          href={profileData.documentURL} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-primary transition-colors p-2 border rounded-lg bg-white"
+                        >
+                          <FileIcon className="h-4 w-4" /> View My Uploaded Document
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <input
+                          type="file"
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          onChange={handleFileUpload}
+                          disabled={uploading}
+                          accept=".pdf,image/*"
+                        />
+                        <Button variant="outline" className="w-full gap-2" disabled={uploading}>
+                          {uploading ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" /> Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="h-4 w-4" /> Choose File
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-4 pb-4 border-b">
+                    <Avatar className="h-16 w-16">
+                      <AvatarImage src={profileData.photoURL} />
+                      <AvatarFallback>{profileData.displayName?.charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 space-y-1">
+                      <label className="text-xs font-semibold text-slate-500 uppercase">Profile Picture URL</label>
+                      <input 
+                        className="w-full p-2 text-sm border rounded-lg" 
+                        placeholder="https://example.com/photo.jpg"
+                        value={profileData.photoURL}
+                        onChange={(e) => setProfileData({ ...profileData, photoURL: e.target.value })}
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700">Agency Name</label>
-                    <input type="text" className="w-full p-2 rounded-lg border" defaultValue={user?.displayName || ''} />
+                    <input 
+                      type="text" 
+                      className="w-full p-2 rounded-lg border" 
+                      value={profileData.displayName}
+                      onChange={(e) => setProfileData({ ...profileData, displayName: e.target.value })}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700">Email Address</label>
@@ -501,9 +719,31 @@ export function AgentDashboard() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700">Phone Number</label>
-                    <input type="tel" className="w-full p-2 rounded-lg border" defaultValue={user?.phoneNumber || ''} />
+                    <input 
+                      type="tel" 
+                      className="w-full p-2 rounded-lg border" 
+                      value={profileData.phoneNumber}
+                      onChange={(e) => setProfileData({ ...profileData, phoneNumber: e.target.value })}
+                    />
                   </div>
-                  <Button className="w-full">Save Changes</Button>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">Country</label>
+                    <input 
+                      type="text" 
+                      className="w-full p-2 rounded-lg border" 
+                      placeholder="Kenya"
+                      value={profileData.country}
+                      onChange={(e) => setProfileData({ ...profileData, country: e.target.value })}
+                    />
+                  </div>
+                  <Button 
+                    className="w-full gap-2" 
+                    onClick={handleSaveProfile}
+                    disabled={saving}
+                  >
+                    {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Save Changes
+                  </Button>
                 </CardContent>
               </Card>
               <Card>

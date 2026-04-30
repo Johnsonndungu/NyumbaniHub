@@ -15,6 +15,7 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { api } from '@/src/services/api';
+import { OptimizedImage } from './OptimizedImage';
 
 interface PropertyDetailsProps {
   property: Property;
@@ -94,11 +95,11 @@ export function PropertyDetails({ property, onNavigate }: PropertyDetailsProps) 
           <div className="space-y-6">
             <div className="space-y-4">
               <div className="aspect-video rounded-xl overflow-hidden border bg-slate-100">
-                <img 
+                <OptimizedImage 
                   src={activeImage} 
                   alt={property.title} 
-                  className="w-full h-full object-cover transition-all duration-300"
-                  referrerPolicy="no-referrer"
+                  className="transition-all duration-300"
+                  containerClassName="w-full h-full"
                 />
               </div>
               
@@ -113,7 +114,7 @@ export function PropertyDetails({ property, onNavigate }: PropertyDetailsProps) 
                         activeImage === img ? "border-primary" : "border-transparent opacity-70 hover:opacity-100"
                       )}
                     >
-                      <img src={img} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      <OptimizedImage src={img} alt="" containerClassName="w-full h-full" />
                     </button>
                   ))}
                 </div>

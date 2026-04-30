@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/src/services/api';
 import { toast } from 'sonner';
-import { Loader2, Lock, CheckCircle2 } from 'lucide-react';
+import { Loader2, Lock, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { PasswordStrength } from './PasswordStrength';
 
 interface ResetPasswordProps {
   onSuccess: () => void;
@@ -104,6 +105,7 @@ export function ResetPassword({ onSuccess }: ResetPasswordProps) {
                   required
                 />
               </div>
+              <PasswordStrength password={formData.password} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="confirmPassword">Confirm Password</Label>

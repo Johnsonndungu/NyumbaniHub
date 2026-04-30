@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { MapPin, Bed, Bath, ShieldCheck, Star } from 'lucide-react';
 import { motion } from 'motion/react';
 import { PropertyDetails } from './PropertyDetails';
+import { OptimizedImage } from './OptimizedImage';
 
 interface PropertyCardProps {
   property: Property;
@@ -22,12 +23,12 @@ export function PropertyCard({ property, index, onNavigate }: PropertyCardProps)
       transition={{ duration: 0.5, delay: index * 0.1 }}
     >
       <Card className="overflow-hidden group cursor-pointer hover:shadow-xl transition-all duration-300 border-slate-200">
-        <div className="relative aspect-[4/3] overflow-hidden">
-          <img 
+        <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
+          <OptimizedImage 
             src={property.images[0] || 'https://picsum.photos/seed/house/800/600'} 
             alt={property.title}
-            className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500"
-            referrerPolicy="no-referrer"
+            className="group-hover:scale-110 transition-transform duration-500"
+            containerClassName="w-full h-full"
           />
           <div className="absolute top-3 left-3 flex gap-2">
             <Badge className="bg-white/90 text-slate-900 hover:bg-white/100 backdrop-blur-sm border-none">

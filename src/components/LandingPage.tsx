@@ -2,18 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ShieldCheck, UserCheck, CreditCard, ArrowRight, Star, MapPin, Search, Home as HomeIcon, Loader2, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, UserCheck, CreditCard, ArrowRight, Star, MapPin, Search, Home as HomeIcon, Loader2, CheckCircle2, Globe } from 'lucide-react';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
 import { api } from '@/src/services/api';
 import { Property } from '@/src/types';
 import { PropertyCard } from './PropertyCard';
+import { OptimizedImage } from './OptimizedImage';
 
 interface LandingPageProps {
   onExplore: () => void;
-  onSearch: (filters: { location: string; type: string; priceRange: string }) => void;
+  onSearch: (filters: { location: string; country: string; type: string; priceRange: string }) => void;
 }
 
 export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
   const [location, setLocation] = useState('');
+  const [country, setCountry] = useState('all');
   const [featuredProperties, setFeaturedProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -32,7 +41,7 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
   }, []);
 
   const handleQuickSearch = () => {
-    onSearch({ location, type: 'all', priceRange: 'all' });
+    onSearch({ location, country, type: 'all', priceRange: 'all' });
     onExplore();
   };
 
@@ -49,19 +58,19 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
           >
             <div className="flex items-center gap-3 mb-8">
               <span className="h-[2px] w-8 bg-primary" />
-              <span className="text-xs font-bold uppercase tracking-[0.3em] text-primary">Premium Real Estate Kenya</span>
+              <span className="text-xs font-bold uppercase tracking-[0.3em] text-primary">Premium Real Estate Platform</span>
             </div>
             <h1 className="font-serif text-6xl md:text-8xl leading-[0.9] tracking-tight mb-8">
               Find Your <br />
               <span className="italic text-primary">Perfect</span> Space.
             </h1>
             <p className="text-lg text-slate-500 max-w-md mb-12 leading-relaxed font-light">
-              Nyumbani Hub connects you with hand-picked, verified properties across Kenya. Experience a seamless rental journey with zero scams.
+              Nyumbani Hub connects you with hand-picked, verified properties across Kenya, USA, and Sierra Leone. Experience a seamless rental journey.
             </p>
 
             {/* Quick Search Bar */}
-            <div className="flex flex-col sm:flex-row gap-2 p-2 bg-slate-50 border rounded-2xl shadow-sm mb-12 max-w-xl">
-              <div className="flex-1 flex items-center px-4 gap-3">
+            <div className="flex flex-col sm:flex-row gap-2 p-2 bg-slate-50 border rounded-2xl shadow-sm mb-12 max-w-2xl">
+              <div className="flex-1 flex items-center px-4 gap-3 border-r sm:border-r-slate-200">
                 <MapPin className="h-5 w-5 text-slate-400" />
                 <Input 
                   placeholder="Where do you want to live?" 
@@ -70,6 +79,20 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
                   onChange={(e) => setLocation(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleQuickSearch()}
                 />
+              </div>
+              <div className="flex items-center px-4 gap-3">
+                <Globe className="h-5 w-5 text-slate-400" />
+                <Select value={country} onValueChange={setCountry}>
+                  <SelectTrigger className="border-none bg-transparent focus:ring-0 text-base p-0 h-12 w-32 shadow-none">
+                    <SelectValue placeholder="Country" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Everywhere</SelectItem>
+                    <SelectItem value="Kenya">Kenya</SelectItem>
+                    <SelectItem value="USA">USA</SelectItem>
+                    <SelectItem value="Sierra Leone">Sierra Leone</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <Button 
                 size="lg" 
@@ -102,11 +125,10 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
 
         {/* Right Image/Visual */}
         <div className="lg:w-1/2 relative min-h-[50vh] lg:min-h-full">
-          <img 
+          <OptimizedImage 
             src="https://picsum.photos/seed/nairobi-modern/1200/1600" 
             alt="Modern Nairobi Apartment" 
-            className="absolute inset-0 w-full h-full object-cover"
-            referrerPolicy="no-referrer"
+            containerClassName="absolute inset-0 w-full h-full"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-white via-white/20 to-transparent lg:block hidden" />
           
@@ -250,6 +272,13 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
             <div className="flex justify-center py-20">
               <Loader2 className="h-8 w-8 text-primary animate-spin" />
             </div>
+          ) : featuredProperties.length === 0 ? (
+            <div className="text-center py-16 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+              <p className="text-slate-500 italic">No properties listed yet. Please check back later!</p>
+              <Button variant="link" className="mt-2 text-primary" onClick={onExplore}>
+                List a property today
+              </Button>
+            </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               {featuredProperties.map((property, i) => (
@@ -292,10 +321,11 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
               </div>
             </div>
             <div className="relative aspect-square">
-              <img 
+              <OptimizedImage 
                 src="https://picsum.photos/seed/nairobi-aerial/1000/1000" 
-                className="w-full h-full object-cover rounded-[5rem] grayscale hover:grayscale-0 transition-all duration-1000"
-                referrerPolicy="no-referrer"
+                alt="Neighborhood Aerial View"
+                containerClassName="w-full h-full rounded-[5rem]"
+                className="grayscale hover:grayscale-0 transition-all duration-1000"
               />
               <div className="absolute -top-10 -right-10 w-40 h-40 bg-primary rounded-full flex items-center justify-center text-center p-4 rotate-12 shadow-2xl">
                 <span className="text-white font-bold text-sm leading-tight uppercase tracking-tighter">Verified by Nyumbani</span>

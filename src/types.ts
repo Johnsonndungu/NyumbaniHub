@@ -6,6 +6,7 @@ export interface UserProfile {
   email: string;
   role: UserRole;
   isVerified?: boolean;
+  emailVerified: boolean;
   rating?: number;
   reviewCount?: number;
   phoneNumber?: string;
@@ -18,6 +19,7 @@ export interface Property {
   title: string;
   description: string;
   location: string;
+  country: 'Kenya' | 'USA' | 'Sierra Leone';
   price: number;
   type: 'apartment' | 'house' | 'studio' | 'bedsitter';
   bedrooms?: number;

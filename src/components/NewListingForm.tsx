@@ -32,6 +32,7 @@ export function NewListingForm({ onSuccess, onCancel, property }: NewListingForm
     location: property?.location || '',
     price: property?.price?.toString() || '',
     type: property?.type || 'apartment',
+    country: property?.country || 'Kenya',
     bedrooms: property?.bedrooms?.toString() || '',
     bathrooms: property?.bathrooms?.toString() || '',
     amenities: property?.amenities?.join(', ') || '',
@@ -160,6 +161,22 @@ export function NewListingForm({ onSuccess, onCancel, property }: NewListingForm
             value={formData.location}
             onChange={(e) => setFormData({ ...formData, location: e.target.value })}
           />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="country">Country</Label>
+          <Select 
+            value={formData.country} 
+            onValueChange={(value: any) => setFormData({ ...formData, country: value })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select country" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Kenya">Kenya</SelectItem>
+              <SelectItem value="USA">USA</SelectItem>
+              <SelectItem value="Sierra Leone">Sierra Leone</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="price">Monthly Rent (KSh)</Label>

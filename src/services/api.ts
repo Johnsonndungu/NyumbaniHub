@@ -40,6 +40,37 @@ export const api = {
     localStorage.setItem('user', JSON.stringify(data.user));
     return data;
   },
+  verifyEmail: async (data: string | { token?: string, code?: string, email?: string }) => {
+    const params = new URLSearchParams();
+    if (typeof data === 'string') {
+      params.append('token', data);
+    } else {
+      if (data.token) params.append('token', data.token);
+      if (data.code) params.append('code', data.code);
+      if (data.email) params.append('email', data.email);
+    }
+    
+    const res = await fetch(`${API_BASE}/auth/verify-email?${params}`, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Verification failed');
+    }
+    return res.json();
+  },
+  resendVerification: async (email: string) => {
+    const res = await fetch(`${API_BASE}/auth/resend-verification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Request failed');
+    }
+    return res.json();
+  },
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -166,6 +197,23 @@ export const api = {
     if (!res.ok) {
       const error = await res.json();
       throw new Error(error.error || 'Failed to update user');
+    }
+    return res.json();
+  },
+  uploadFile: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = localStorage.getItem('token');
+    const res = await fetch(`${API_BASE}/upload`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: formData
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Upload failed');
     }
     return res.json();
   },

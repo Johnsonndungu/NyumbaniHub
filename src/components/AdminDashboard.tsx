@@ -18,9 +18,13 @@ import {
   Loader2,
   Trash2,
   UserCog,
-  Send
+  Send,
+  CreditCard,
+  User as UserIcon,
+  FileText
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,8 +53,11 @@ interface User {
   displayName: string;
   email: string;
   role: 'agent' | 'landlord' | 'tenant' | 'admin';
-  verified: boolean;
+  isVerified: boolean;
   joinedAt: any;
+  photoURL?: string;
+  documentURL?: string;
+  documentType?: string;
 }
 
 interface Stats {
@@ -73,29 +80,39 @@ interface Property {
 export function AdminDashboard() {
   const [users, setUsers] = useState<User[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'verifications' | 'properties'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'verifications' | 'properties' | 'payments' | 'settings'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
   const [broadcastMessage, setBroadcastMessage] = useState({ subject: '', content: '', target: 'all' });
 
   const fetchData = async () => {
     try {
-      const usersData = await api.getUsers();
-      const propsData = await api.getProperties();
+      const [usersData, propsData, paymentsData] = await Promise.all([
+        api.getUsers(),
+        api.getProperties(),
+        api.getPayments()
+      ]);
       
       const safeUsers = Array.isArray(usersData) ? usersData : [];
       const safeProps = Array.isArray(propsData) ? propsData : [];
+      const safePayments = Array.isArray(paymentsData) ? paymentsData : [];
       
       setUsers(safeUsers);
       setProperties(safeProps);
+      setPayments(safePayments);
       
+      const totalRev = safePayments
+        .filter(p => p.status === 'completed')
+        .reduce((acc, p) => acc + p.amount, 0);
+
       setStats({
         totalUsers: safeUsers.length,
         totalProperties: safeProps.length,
         pendingVerifications: safeUsers.filter((u: any) => !u.isVerified && (u.role === 'agent' || u.role === 'landlord')).length,
-        totalRevenue: safeProps.reduce((acc: number, p: any) => acc + (p.price * 0.05), 0)
+        totalRevenue: totalRev
       });
     } catch (err) {
       console.error('Error fetching admin data:', err);
@@ -223,6 +240,13 @@ export function AdminDashboard() {
           </Button>
           <Button 
             variant="ghost" 
+            onClick={() => setActiveTab('payments')}
+            className={`w-full justify-start gap-3 hover:bg-slate-800 hover:text-white ${activeTab === 'payments' ? 'bg-slate-800 text-primary' : 'text-slate-400'}`}
+          >
+            <CreditCard className="h-4 w-4" /> Financials
+          </Button>
+          <Button 
+            variant="ghost" 
             onClick={() => setActiveTab('verifications')}
             className={`w-full justify-start gap-3 hover:bg-slate-800 hover:text-white ${activeTab === 'verifications' ? 'bg-slate-800 text-primary' : 'text-slate-400'}`}
           >
@@ -232,6 +256,13 @@ export function AdminDashboard() {
                 {stats.pendingVerifications}
               </Badge>
             )}
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setActiveTab('settings')}
+            className={`w-full justify-start gap-3 hover:bg-slate-800 hover:text-white ${activeTab === 'settings' ? 'bg-slate-800 text-primary' : 'text-slate-400'}`}
+          >
+            <UserCog className="h-4 w-4" /> platform Settings
           </Button>
         </nav>
       </aside>
@@ -372,9 +403,10 @@ export function AdminDashboard() {
                     {users.slice(0, 5).map(user => (
                       <div key={user.id} className="py-4 flex items-center justify-between">
                           <div className="flex items-center gap-4">
-                            <div className="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600">
-                              {(user.displayName || 'U').charAt(0)}
-                            </div>
+                            <Avatar className="h-10 w-10">
+                              <AvatarImage src={user.photoURL} />
+                              <AvatarFallback>{(user.displayName || 'U').charAt(0)}</AvatarFallback>
+                            </Avatar>
                             <div>
                               <div className="font-bold text-slate-900">{user.displayName || 'Anonymous'}</div>
                               <div className="text-xs text-slate-500">{user.email}</div>
@@ -382,7 +414,7 @@ export function AdminDashboard() {
                           </div>
                         <div className="flex items-center gap-4">
                           <Badge variant="outline" className="capitalize">{user.role}</Badge>
-                          {user.verified ? (
+                          {user.isVerified ? (
                             <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none">Verified</Badge>
                           ) : (
                             <Badge variant="secondary">Pending</Badge>
@@ -395,27 +427,63 @@ export function AdminDashboard() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>System Alerts</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
-                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
-                    <div>
-                      <p className="text-sm font-bold text-amber-900">Verification Backlog</p>
-                      <p className="text-xs text-amber-700">There are {stats?.pendingVerifications} agents waiting for document verification.</p>
+              <div className="space-y-8">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Recent Activity</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {/* Combine users and payments for a feed */}
+                    {[
+                      ...users.slice(0, 3).map(u => ({ type: 'user', data: u, date: u.joinedAt })),
+                      ...payments.slice(0, 3).map(p => ({ type: 'payment', data: p, date: p.createdAt }))
+                    ]
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .slice(0, 5)
+                    .map((item, idx) => (
+                      <div key={idx} className="flex gap-4 items-start">
+                        <div className={`p-2 rounded-lg shrink-0 ${item.type === 'user' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                          {item.type === 'user' ? <UserCog className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
+                        </div>
+                        <div>
+                          <p className="text-sm">
+                            <span className="font-bold">
+                              {item.type === 'user' ? item.data.displayName : item.data.tenantName}
+                            </span>
+                            {item.type === 'user' ? ' joined as ' : ' paid KSh '}
+                            <span className="font-medium">
+                              {item.type === 'user' ? item.data.role : item.data.amount.toLocaleString()}
+                            </span>
+                          </p>
+                          <p className="text-[10px] text-slate-500">{new Date(item.date).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>System Health</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                      <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+                      <div>
+                        <p className="text-sm font-bold text-amber-900">Verification Backlog</p>
+                        <p className="text-xs text-amber-700">There are {stats?.pendingVerifications} agents waiting for document verification.</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                    <Calendar className="h-5 w-5 text-blue-600 shrink-0" />
-                    <div>
-                      <p className="text-sm font-bold text-blue-900">Monthly Report</p>
-                      <p className="text-xs text-blue-700">March 2026 performance report is now ready for review.</p>
+                    <div className="flex gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                      <Calendar className="h-5 w-5 text-blue-600 shrink-0" />
+                      <div>
+                        <p className="text-sm font-bold text-blue-900">Monthly Report</p>
+                        <p className="text-xs text-blue-700">March 2026 performance report is now ready for review.</p>
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </div>
         )}
@@ -450,15 +518,23 @@ export function AdminDashboard() {
                     {filteredUsers.map(user => (
                       <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="py-4">
-                          <div className="font-bold text-slate-900">{user.displayName || 'Anonymous'}</div>
-                          <div className="text-xs text-slate-500">{user.email}</div>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={user.photoURL} />
+                              <AvatarFallback>{(user.displayName || 'U').charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-bold text-slate-900">{user.displayName || 'Anonymous'}</div>
+                              <div className="text-xs text-slate-500">{user.email}</div>
+                            </div>
+                          </div>
                         </td>
                         <td className="py-4">
                           <Badge variant="outline" className="capitalize">{user.role}</Badge>
                         </td>
                         <td className="py-4">
                           <div className="flex items-center gap-2">
-                            {user.verified ? (
+                            {user.isVerified ? (
                               <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none">Verified</Badge>
                             ) : (
                               <Badge variant="secondary">Unverified</Badge>
@@ -468,10 +544,10 @@ export function AdminDashboard() {
                                 variant="ghost" 
                                 size="sm" 
                                 className="h-8 w-8 p-0 hover:bg-slate-100"
-                                onClick={() => handleVerifyUser(user.id, !user.verified)}
-                                title={user.verified ? "Revoke Verification" : "Verify User"}
+                                onClick={() => handleVerifyUser(user.id, !user.isVerified)}
+                                title={user.isVerified ? "Revoke Verification" : "Verify User"}
                               >
-                                {user.verified ? (
+                                {user.isVerified ? (
                                   <ShieldOff className="h-4 w-4 text-slate-400" />
                                 ) : (
                                   <ShieldCheck className="h-4 w-4 text-primary" />
@@ -492,9 +568,9 @@ export function AdminDashboard() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                              <DropdownMenuItem onClick={() => handleVerifyUser(user.id, !user.verified)}>
+                              <DropdownMenuItem onClick={() => handleVerifyUser(user.id, !user.isVerified)}>
                                 <ShieldCheck className="mr-2 h-4 w-4" />
-                                {user.verified ? 'Revoke Verification' : 'Verify User'}
+                                {user.isVerified ? 'Revoke Verification' : 'Verify User'}
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuLabel className="text-[10px] uppercase text-slate-400">Change Role</DropdownMenuLabel>
@@ -526,12 +602,125 @@ export function AdminDashboard() {
           </Card>
         )}
 
+        {activeTab === 'payments' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Financial Overview</h3>
+                <p className="text-sm text-slate-500">Track all platform transactions and revenue.</p>
+              </div>
+              <div className="flex gap-2">
+                 <Badge variant="outline" className="bg-emerald-50 text-emerald-700">Total: KSh {stats?.totalRevenue.toLocaleString()}</Badge>
+              </div>
+            </div>
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                        <th className="p-4 font-bold">Tenant</th>
+                        <th className="p-4 font-bold">Property</th>
+                        <th className="p-4 font-bold">Amount</th>
+                        <th className="p-4 font-bold">Purpose</th>
+                        <th className="p-4 font-bold">Status</th>
+                        <th className="p-4 font-bold">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {payments.map(pay => (
+                        <tr key={pay.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-4">
+                            <div className="font-medium text-slate-900">{pay.tenantName}</div>
+                          </td>
+                          <td className="p-4 text-sm text-slate-600">{pay.propertyTitle}</td>
+                          <td className="p-4 font-bold">KSh {pay.amount.toLocaleString()}</td>
+                          <td className="p-4">
+                             <Badge variant="outline" className="capitalize text-[10px]">{pay.purpose}</Badge>
+                          </td>
+                          <td className="p-4">
+                            <Badge className={pay.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}>
+                              {pay.status}
+                            </Badge>
+                          </td>
+                          <td className="p-4 text-xs text-slate-500">
+                             {new Date(pay.createdAt).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                      {payments.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="p-12 text-center text-slate-400 italic">No transactions found.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {activeTab === 'settings' && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-slate-900">Platform Settings</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-md">General Configurations</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                      <div className="font-bold text-sm">Maintenace Mode</div>
+                      <div className="text-xs text-slate-500">Temporarily disable platform access.</div>
+                    </div>
+                    <Button variant="outline" size="sm">Enable</Button>
+                  </div>
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                      <div className="font-bold text-sm">Agent Commission</div>
+                      <div className="text-xs text-slate-500">Currently set to 5% per transaction.</div>
+                    </div>
+                    <Button variant="outline" size="sm">Edit</Button>
+                  </div>
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                      <div className="font-bold text-sm">Auto-Verification</div>
+                      <div className="text-xs text-slate-500">Enable AI document verification.</div>
+                    </div>
+                    <Badge variant="secondary">Premium Feature</Badge>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-md">Security & Access</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                   <div className="p-4 border rounded-lg">
+                      <div className="font-bold text-sm mb-1">Admin Audit Trail</div>
+                      <p className="text-xs text-slate-500 mb-4">View logs of all administrative actions performed on the platform.</p>
+                      <Button size="sm" className="w-full">View Logs</Button>
+                   </div>
+                   <div className="p-4 border rounded-lg">
+                      <div className="font-bold text-sm mb-1">API Documentation</div>
+                      <p className="text-xs text-slate-500 mb-4">Access key platform API documentation for developers.</p>
+                      <Button variant="outline" size="sm" className="w-full">Open Docs</Button>
+                   </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'verifications' && (
           <div className="space-y-6">
             <h3 className="text-lg font-bold text-slate-900">Pending Verifications</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {users.filter(u => !u.verified && (u.role === 'agent' || u.role === 'landlord')).length > 0 ? (
-                users.filter(u => !u.verified && (u.role === 'agent' || u.role === 'landlord')).map(user => (
+              {users.filter(u => !u.isVerified && (u.role === 'agent' || u.role === 'landlord')).length > 0 ? (
+                users.filter(u => !u.isVerified && (u.role === 'agent' || u.role === 'landlord')).map(user => (
                   <Card key={user.id}>
                     <CardContent className="pt-6">
                       <div className="flex justify-between items-start mb-4">
@@ -553,6 +742,26 @@ export function AdminDashboard() {
                         <div className="flex items-center gap-2 text-sm text-slate-600">
                           <Calendar className="h-4 w-4" /> Joined {user.joinedAt?.toDate ? user.joinedAt.toDate().toLocaleDateString() : new Date(user.joinedAt).toLocaleDateString()}
                         </div>
+                        {user.documentURL ? (
+                          <div className="space-y-2">
+                             <div className="text-[10px] font-bold text-slate-400 uppercase">
+                                Document Type: {user.documentType?.replace('_', ' ') || 'Not specified'}
+                             </div>
+                             <a 
+                               href={user.documentURL} 
+                               target="_blank" 
+                               rel="noopener noreferrer"
+                               className="flex items-center gap-2 text-sm font-medium text-primary hover:underline p-3 bg-primary/5 rounded-lg border border-primary/10"
+                             >
+                               <FileText className="h-4 w-4" /> 
+                               {user.role === 'agent' ? 'View Certificate of Registration' : 'View ID/Passport/Driving License'}
+                             </a>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-sm text-amber-600 p-3 bg-amber-50 rounded-lg border border-amber-100 italic">
+                            <AlertTriangle className="h-4 w-4" /> No document uploaded yet
+                          </div>
+                        )}
                       </div>
                       <div className="flex gap-3">
                         <Button 

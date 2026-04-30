@@ -1,8 +1,10 @@
 import express from "express";
 import path from "path";
 import cors from "cors";
+import multer from "multer";
+import { existsSync, mkdirSync } from "fs";
 import { createServer as createViteServer } from "vite";
-import db from "./src/lib/db.js";
+import { supabase } from "./src/lib/supabase.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
@@ -23,28 +25,83 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // --- File Storage Setup ---
+  const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, "public/uploads/");
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
+    },
+  });
+  const upload = multer({ storage });
+  
+  // Ensure uploads directory exists
+  if (!existsSync("public/uploads")) {
+    mkdirSync("public/uploads", { recursive: true });
+  }
+
   app.use(cors());
   app.use(express.json());
 
   // --- Auth Routes ---
 
   app.post("/api/auth/signup", async (req, res) => {
-    const { email, password, displayName, role } = req.body;
+    const { email, password, displayName, role, phoneNumber, country } = req.body;
     try {
       const hashedPassword = await bcrypt.hash(password, 10);
       const id = uuidv4();
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
       
-      const stmt = db.prepare(
-        "INSERT INTO users (id, email, password, displayName, role) VALUES (?, ?, ?, ?, ?)"
-      );
-      stmt.run(id, email, hashedPassword, displayName, role || 'tenant');
+      const { data: newUser, error: insertError } = await supabase
+        .from("users")
+        .insert({
+          uid: id,
+          email,
+          password: hashedPassword,
+          displayname: displayName,
+          role: role || 'tenant',
+          verificationtoken: verificationCode,
+          emailverified: false,
+          phonenumber: phoneNumber,
+          country: country || 'Kenya'
+        })
+        .select("*")
+        .single();
+
+      if (insertError) {
+        if (insertError.message?.includes("column \"country\" does not exist")) {
+          console.error("CRITICAL: The 'country' column is missing from your 'users' table. Please run the updated schema.sql or manually add it: ALTER TABLE users ADD COLUMN country VARCHAR(100) DEFAULT 'Kenya';");
+        }
+        throw insertError;
+      }
       
-      const user: any = db.prepare("SELECT id, email, displayName, role FROM users WHERE id = ?").get(id);
-      const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+      const sessionUser = {
+        id: newUser.uid,
+        email: newUser.email,
+        displayName: newUser.displayname,
+        role: newUser.role,
+        emailVerified: newUser.emailverified,
+        isVerified: newUser.isverified,
+        phoneNumber: newUser.phonenumber,
+        country: newUser.country
+      };
       
-      res.json({ user, token });
+      const token = jwt.sign({ id: newUser.uid, email: newUser.email }, JWT_SECRET, { expiresIn: '7d' });
+
+      // In a real app, send verification email here
+      console.log(`
+=========================================
+[EMAIL VERIFICATION CODE]
+User: ${email}
+Code: ${verificationCode}
+=========================================
+`);
+      
+      res.json({ user: sessionUser, token });
     } catch (err: any) {
-      if (err.message.includes('UNIQUE constraint failed')) {
+      if (err.code === '23505') { // Postgres unique constraint violation
         return res.status(400).json({ error: "Email already exists" });
       }
       res.status(500).json({ error: err.message });
@@ -54,8 +111,13 @@ async function startServer() {
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
     try {
-      const user: any = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-      if (!user || !user.password) {
+      const { data: user, error: fetchError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("email", email)
+        .single();
+
+      if (fetchError || !user || !user.password) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
       
@@ -64,11 +126,21 @@ async function startServer() {
         return res.status(401).json({ error: "Invalid credentials" });
       }
       
-      const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+      const token = jwt.sign({ id: user.uid, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
       
       // Don't send password back
       const { password: _, ...userWithoutPassword } = user;
-      res.json({ user: userWithoutPassword, token });
+      const sessionUser = {
+        ...userWithoutPassword,
+        id: user.uid,
+        displayName: user.displayname,
+        emailVerified: user.emailverified,
+        isVerified: user.isverified,
+        photoURL: user.photourl,
+        phoneNumber: user.phonenumber,
+        country: user.country
+      };
+      res.json({ user: sessionUser, token });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -77,8 +149,13 @@ async function startServer() {
   app.post("/api/auth/forgot-password", async (req, res) => {
     const { email } = req.body;
     try {
-      const user: any = db.prepare("SELECT id, email FROM users WHERE email = ?").get(email);
-      if (!user) {
+      const { data: user, error } = await supabase
+        .from("users")
+        .select("uid, email")
+        .eq("email", email)
+        .single();
+
+      if (error || !user) {
         // For security, don't reveal if user exists or not
         return res.json({ message: "If an account exists with this email, a reset link has been sent." });
       }
@@ -86,13 +163,27 @@ async function startServer() {
       const token = uuidv4();
       const expiresAt = new Date(Date.now() + 3600000).toISOString(); // 1 hour from now
 
-      const stmt = db.prepare(
-        "INSERT INTO password_resets (id, userId, token, expiresAt) VALUES (?, ?, ?, ?)"
-      );
-      stmt.run(uuidv4(), user.id, token, expiresAt);
+      const { error: resetError } = await supabase
+        .from("password_resets")
+        .insert({
+          id: uuidv4(),
+          userid: user.uid,
+          token,
+          expiresat: expiresAt
+        });
+
+      if (resetError) throw resetError;
 
       // In a real app, send email here. For now, log it.
-      console.log(`[PASSWORD RESET] Link: http://localhost:3000/reset-password?token=${token}`);
+      const resetLink = `/reset-password?token=${token}`;
+      console.log(`
+=========================================
+[PASSWORD RESET REQUEST]
+User: ${user.email}
+Relative Link: ${resetLink}
+Full Link: http://localhost:3000${resetLink}
+=========================================
+`);
       
       res.json({ message: "If an account exists with this email, a reset link has been sent." });
     } catch (err: any) {
@@ -103,18 +194,31 @@ async function startServer() {
   app.post("/api/auth/reset-password", async (req, res) => {
     const { token, newPassword } = req.body;
     try {
-      const reset: any = db.prepare(
-        "SELECT * FROM password_resets WHERE token = ? AND used = 0 AND expiresAt > CURRENT_TIMESTAMP"
-      ).get(token);
+      const { data: reset, error: fetchError } = await supabase
+        .from("password_resets")
+        .select("*")
+        .eq("token", token)
+        .eq("used", false)
+        .lt("expiresat", new Date().toISOString())
+        .single();
 
-      if (!reset) {
+      if (fetchError || !reset) {
         return res.status(400).json({ error: "Invalid or expired token" });
       }
 
       const hashedPassword = await bcrypt.hash(newPassword, 10);
       
-      db.prepare("UPDATE users SET password = ? WHERE id = ?").run(hashedPassword, reset.userId);
-      db.prepare("UPDATE password_resets SET used = 1 WHERE id = ?").run(reset.id);
+      const { error: userUpdateError } = await supabase
+        .from("users")
+        .update({ password: hashedPassword })
+        .eq("uid", reset.userid);
+
+      if (userUpdateError) throw userUpdateError;
+
+      await supabase
+        .from("password_resets")
+        .update({ used: true })
+        .eq("id", reset.id);
 
       res.json({ success: true, message: "Password has been reset successfully." });
     } catch (err: any) {
@@ -122,144 +226,382 @@ async function startServer() {
     }
   });
 
-  // --- API Routes (SQLite) ---
+  app.get("/api/auth/verify-email", async (req, res) => {
+    const { token, code, email } = req.query;
+    const verificationValue = token || code;
+    
+    try {
+      let query = supabase.from("users").select("*");
+      
+      if (email) {
+        query = query.eq("email", email);
+      }
+      
+      const { data: user, error: fetchError } = await query
+        .eq("verificationtoken", verificationValue)
+        .single();
+
+      if (fetchError || !user) {
+        return res.status(400).json({ error: "Invalid or expired verification code" });
+      }
+
+      await supabase
+        .from("users")
+        .update({ emailverified: true, verificationtoken: null })
+        .eq("uid", user.uid);
+
+      res.json({ success: true, message: "Email verified successfully!" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/auth/resend-verification", async (req, res) => {
+    const { email } = req.body;
+    try {
+      const { data: user, error: fetchError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("email", email)
+        .single();
+
+      if (fetchError || !user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (user.emailVerified) {
+        return res.status(400).json({ error: "Email is already verified" });
+      }
+
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      await supabase
+        .from("users")
+        .update({ verificationtoken: verificationCode })
+        .eq("uid", user.uid);
+
+      // Log for dev
+      console.log(`
+=========================================
+[EMAIL VERIFICATION CODE RESEND]
+User: ${email}
+Code: ${verificationCode}
+=========================================
+`);
+
+      res.json({ success: true, message: "Verification code sent." });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Auth Middleware ---
+  const authenticate = async (req: any, res: any, next: any) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const token = authHeader.split(' ')[1];
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      const { data: user, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("uid", decoded.id)
+        .single();
+
+      if (error || !user) return res.status(401).json({ error: "User not found" });
+      req.user = { 
+        ...user, 
+        id: user.uid, 
+        displayName: user.displayname,
+        isVerified: user.isverified,
+        emailVerified: user.emailverified,
+        phoneNumber: user.phonenumber,
+        country: user.country,
+        role: user.role
+      };
+      next();
+    } catch (err) {
+      res.status(401).json({ error: "Invalid token" });
+    }
+  };
+
+  // --- API Routes (Supabase) ---
 
   // Users
-  app.get("/api/users/:id", async (req, res) => {
+  app.get("/api/users/:id", authenticate, async (req: any, res: any) => {
     try {
-      const row = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
-      if (!row) return res.status(404).json({ error: "User not found" });
-      res.json(row);
+      const { data: user, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("uid", req.params.id)
+        .single();
+
+      if (error || !user) return res.status(404).json({ error: "User not found" });
+      
+      const formattedUser = {
+        id: user.uid,
+        email: user.email,
+        displayName: user.displayname,
+        role: user.role,
+        isVerified: user.isverified,
+        emailVerified: user.emailverified,
+        photoURL: user.photourl,
+        phoneNumber: user.phonenumber,
+        country: user.country,
+        documentURL: user.documenturl,
+        documentType: user.documenttype,
+        createdAt: user.createdat
+      };
+      res.json(formattedUser);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
   });
 
-  app.post("/api/users", async (req, res) => {
+  app.post("/api/users", authenticate, async (req: any, res: any) => {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: "Forbidden: Admin only" });
+    }
     const { id, email, displayName, role, photoURL } = req.body;
     try {
-      const stmt = db.prepare(
-        "INSERT INTO users (id, email, displayName, role, photoURL) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET displayName = excluded.displayName, photoURL = excluded.photoURL"
-      );
-      stmt.run(id, email, displayName, role || 'tenant', photoURL);
+      const { error } = await supabase
+        .from("users")
+        .upsert({ 
+          uid: id, 
+          email, 
+          displayname: displayName, 
+          role: role || 'tenant', 
+          photourl: photoURL 
+        });
+
+      if (error) throw error;
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
   });
 
-  app.patch("/api/users/:id", async (req, res) => {
-    const { role, verified, displayName, phoneNumber } = req.body;
+  app.patch("/api/users/:id", authenticate, async (req: any, res: any) => {
+    const { id } = req.params;
+    const { role, verified, displayName, phoneNumber, country, photoURL, documentURL, documentType } = req.body;
+    const isTargetingSelf = req.user.id === id;
+    const isAdmin = req.user.role === 'admin';
+
     try {
-      const updates: string[] = [];
-      const values: any[] = [];
-      if (role) { updates.push("role = ?"); values.push(role); }
-      if (verified !== undefined) { updates.push("isVerified = ?"); values.push(verified ? 1 : 0); }
-      if (displayName) { updates.push("displayName = ?"); values.push(displayName); }
-      if (phoneNumber) { updates.push("phoneNumber = ?"); values.push(phoneNumber); }
+      if (!isAdmin && !isTargetingSelf) {
+        return res.status(403).json({ error: "forbidden: You can only update your own profile" });
+      }
+
+      if ((role !== undefined || verified !== undefined) && !isAdmin) {
+        return res.status(403).json({ error: "Forbidden: Only admins can change roles or verification status" });
+      }
+
+      const updates: any = {};
       
-      if (updates.length === 0) return res.status(400).json({ error: "No fields to update" });
+      if (isAdmin && role) updates.role = role;
+      if (isAdmin && verified !== undefined) updates.isverified = verified;
       
-      values.push(req.params.id);
-      const stmt = db.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`);
-      stmt.run(...values);
+      if (displayName) updates.displayname = displayName;
+      if (phoneNumber) updates.phonenumber = phoneNumber;
+      if (country) updates.country = country;
+      if (photoURL) updates.photourl = photoURL;
+      if (documentURL) updates.documenturl = documentURL;
+      if (documentType) updates.documenttype = documentType;
+      
+      if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No fields to update" });
+      
+      const { data: updatedUser, error } = await supabase
+        .from("users")
+        .update(updates)
+        .eq("uid", id)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+      
+      const formattedUser = {
+        id: updatedUser.uid,
+        email: updatedUser.email,
+        displayName: updatedUser.displayname,
+        role: updatedUser.role,
+        isVerified: updatedUser.isverified,
+        emailVerified: updatedUser.emailverified,
+        photoURL: updatedUser.photourl,
+        phoneNumber: updatedUser.phonenumber,
+        country: updatedUser.country,
+        documentURL: updatedUser.documenturl,
+        documentType: updatedUser.documenttype,
+        createdAt: updatedUser.createdat
+      };
+      res.json(formattedUser);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/users", authenticate, async (req: any, res: any) => {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: "Forbidden: Admin only" });
+    }
+    try {
+      const { data: users, error } = await supabase
+        .from("users")
+        .select("*")
+        .order("createdat", { ascending: false });
+
+      if (error) throw error;
+      res.json(users);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.delete("/api/users/:id", authenticate, async (req: any, res: any) => {
+    if (req.user.role !== 'admin' && req.user.id !== req.params.id) {
+      return res.status(403).json({ error: "Forbidden: Only admins can delete other users" });
+    }
+    try {
+      const { error } = await supabase
+        .from("users")
+        .delete()
+        .eq("uid", req.params.id);
+
+      if (error) throw error;
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
   });
 
-  app.get("/api/users", async (req, res) => {
-    try {
-      const rows = db.prepare("SELECT * FROM users ORDER BY createdAt DESC").all();
-      res.json(rows);
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
-  app.delete("/api/users/:id", async (req, res) => {
-    try {
-      db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
+  app.post("/api/upload", authenticate, upload.single("file"), (req: any, res) => {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ url: fileUrl });
   });
 
   // Properties
   app.get("/api/properties", async (req, res) => {
-    const { ownerId, type } = req.query;
+    const { ownerId, type, country } = req.query;
     try {
-      let sql = "SELECT * FROM properties";
-      const values: any[] = [];
-      const conditions: string[] = [];
+      let query = supabase.from("properties").select("*");
       
-      if (ownerId) { conditions.push("ownerId = ?"); values.push(ownerId); }
-      if (type && type !== 'all') { conditions.push("type = ?"); values.push(type); }
+      if (ownerId) query = query.eq("ownerid", ownerId);
+      if (type && type !== 'all') query = query.eq("type", type);
+      if (country && country !== 'all') query = query.eq("country", country);
       
-      if (conditions.length > 0) sql += " WHERE " + conditions.join(" AND ");
-      sql += " ORDER BY createdAt DESC";
+      const { data: properties, error } = await query.order("createdat", { ascending: false });
+
+      if (error) throw error;
       
-      const rows: any = db.prepare(sql).all(...values);
-      // Parse JSON strings
-      const parsedRows = rows.map((row: any) => ({
-        ...row,
-        amenities: row.amenities ? JSON.parse(row.amenities) : [],
-        images: row.images ? JSON.parse(row.images) : []
+      const formatted = properties.map((p: any) => ({
+        ...p,
+        ownerId: p.ownerid,
+        ownerType: p.ownertype,
+        createdAt: p.createdat
       }));
-      res.json(parsedRows);
+      res.json(formatted);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
   });
 
-  app.post("/api/properties", async (req, res) => {
-    const { id, title, description, location, price, type, bedrooms, bathrooms, ownerId, ownerType, status, amenities, images } = req.body;
+  app.post("/api/properties", authenticate, async (req: any, res: any) => {
+    if (req.user.role === 'tenant') {
+      return res.status(403).json({ error: "Tenants cannot list properties" });
+    }
+    if (!req.user.isVerified) {
+      return res.status(403).json({ error: "Your account must be verified by an admin before you can list properties." });
+    }
+    const { id, title, description, location, country, price, type, bedrooms, bathrooms, ownerId, ownerType, status, amenities, images } = req.body;
     try {
-      const stmt = db.prepare(
-        "INSERT INTO properties (id, title, description, location, price, type, bedrooms, bathrooms, ownerId, ownerType, status, amenities, images) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      );
-      stmt.run(
-        id, title, description, location, price, type, bedrooms, bathrooms, ownerId, ownerType, status || 'available', 
-        JSON.stringify(amenities || []), JSON.stringify(images || [])
-      );
+      const { error } = await supabase
+        .from("properties")
+        .insert({
+          id, 
+          title, 
+          description, 
+          location, 
+          country: country || 'Kenya', 
+          price, 
+          type, 
+          bedrooms, 
+          bathrooms, 
+          ownerid: ownerId, 
+          ownertype: ownerType, 
+          status: status || 'available', 
+          amenities: amenities || [], 
+          images: images || []
+        });
+
+      if (error) throw error;
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
   });
 
-  app.patch("/api/properties/:id", async (req, res) => {
-    const { title, description, location, price, type, bedrooms, bathrooms, status, amenities, images } = req.body;
+  app.patch("/api/properties/:id", authenticate, async (req: any, res: any) => {
+    const { title, description, location, country, price, type, bedrooms, bathrooms, status, amenities, images } = req.body;
     try {
-      const updates: string[] = [];
-      const values: any[] = [];
-      if (title) { updates.push("title = ?"); values.push(title); }
-      if (description) { updates.push("description = ?"); values.push(description); }
-      if (location) { updates.push("location = ?"); values.push(location); }
-      if (price) { updates.push("price = ?"); values.push(price); }
-      if (type) { updates.push("type = ?"); values.push(type); }
-      if (bedrooms) { updates.push("bedrooms = ?"); values.push(bedrooms); }
-      if (bathrooms) { updates.push("bathrooms = ?"); values.push(bathrooms); }
-      if (status) { updates.push("status = ?"); values.push(status); }
-      if (amenities) { updates.push("amenities = ?"); values.push(JSON.stringify(amenities)); }
-      if (images) { updates.push("images = ?"); values.push(JSON.stringify(images)); }
+      const { data: property, error: fetchError } = await supabase
+        .from("properties")
+        .select("*")
+        .eq("id", req.params.id)
+        .single();
+
+      if (fetchError || !property) return res.status(404).json({ error: "Property not found" });
       
-      if (updates.length === 0) return res.status(400).json({ error: "No fields to update" });
+      if (req.user.role !== 'admin' && req.user.id !== property.ownerid) {
+        return res.status(403).json({ error: "Forbidden: You do not own this property" });
+      }
+
+      const updates: any = {};
+      if (title) updates.title = title;
+      if (description) updates.description = description;
+      if (location) updates.location = location;
+      if (country) updates.country = country;
+      if (price) updates.price = price;
+      if (type) updates.type = type;
+      if (bedrooms) updates.bedrooms = bedrooms;
+      if (bathrooms) updates.bathrooms = bathrooms;
+      if (status) updates.status = status;
+      if (amenities) updates.amenities = amenities;
+      if (images) updates.images = images;
       
-      values.push(req.params.id);
-      const stmt = db.prepare(`UPDATE properties SET ${updates.join(", ")} WHERE id = ?`);
-      stmt.run(...values);
+      if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No fields to update" });
+      
+      const { error: updateError } = await supabase
+        .from("properties")
+        .update(updates)
+        .eq("id", req.params.id);
+
+      if (updateError) throw updateError;
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
   });
 
-  app.delete("/api/properties/:id", async (req, res) => {
+  app.delete("/api/properties/:id", authenticate, async (req: any, res: any) => {
     try {
-      db.prepare("DELETE FROM properties WHERE id = ?").run(req.params.id);
+      const { data: property, error: fetchError } = await supabase
+        .from("properties")
+        .select("*")
+        .eq("id", req.params.id)
+        .single();
+
+      if (fetchError || !property) return res.status(404).json({ error: "Property not found" });
+
+      if (req.user.role !== 'admin' && req.user.id !== property.ownerid) {
+        return res.status(403).json({ error: "Forbidden: You do not own this property" });
+      }
+
+      const { error: deleteError } = await supabase
+        .from("properties")
+        .delete()
+        .eq("id", req.params.id);
+
+      if (deleteError) throw deleteError;
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -270,18 +612,25 @@ async function startServer() {
   app.get("/api/applications", async (req, res) => {
     const { tenantId, propertyId } = req.query;
     try {
-      let sql = "SELECT a.*, p.title as propertyTitle FROM applications a JOIN properties p ON a.propertyId = p.id";
-      const values: any[] = [];
-      const conditions: string[] = [];
+      let query = supabase.from("applications").select("*, properties(title)");
       
-      if (tenantId) { conditions.push("a.tenantId = ?"); values.push(tenantId); }
-      if (propertyId) { conditions.push("a.propertyId = ?"); values.push(propertyId); }
+      if (tenantId) query = query.eq("tenantid", tenantId);
+      if (propertyId) query = query.eq("propertyid", propertyId);
       
-      if (conditions.length > 0) sql += " WHERE " + conditions.join(" AND ");
-      sql += " ORDER BY a.createdAt DESC";
+      const { data: applications, error } = await query.order("createdat", { ascending: false });
+
+      if (error) throw error;
       
-      const rows = db.prepare(sql).all(...values);
-      res.json(rows);
+      // Flatten joined property title and format keys
+      const formatted = applications.map((app: any) => ({
+        ...app,
+        propertyTitle: app.properties?.title,
+        tenantId: app.tenantid,
+        propertyId: app.propertyid,
+        createdAt: app.createdat
+      }));
+      
+      res.json(formatted);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -290,10 +639,17 @@ async function startServer() {
   app.post("/api/applications", async (req, res) => {
     const { id, propertyId, tenantId, status, message } = req.body;
     try {
-      const stmt = db.prepare(
-        "INSERT INTO applications (id, propertyId, tenantId, status, message) VALUES (?, ?, ?, ?, ?)"
-      );
-      stmt.run(id, propertyId, tenantId, status || 'pending', message);
+      const { error } = await supabase
+        .from("applications")
+        .insert({
+          id, 
+          propertyid: propertyId, 
+          tenantid: tenantId, 
+          status: status || 'pending', 
+          message
+        });
+
+      if (error) throw error;
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -303,7 +659,12 @@ async function startServer() {
   app.patch("/api/applications/:id", async (req, res) => {
     const { status } = req.body;
     try {
-      db.prepare("UPDATE applications SET status = ? WHERE id = ?").run(status, req.params.id);
+      const { error } = await supabase
+        .from("applications")
+        .update({ status })
+        .eq("id", req.params.id);
+
+      if (error) throw error;
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -314,10 +675,21 @@ async function startServer() {
   app.get("/api/messages", async (req, res) => {
     const { userId } = req.query;
     try {
-      const rows = db.prepare(
-        "SELECT * FROM messages WHERE senderId = ? OR receiverId = ? ORDER BY createdAt ASC"
-      ).all(userId, userId);
-      res.json(rows);
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .or(`senderid.eq.${userId},receiverid.eq.${userId}`)
+        .order("createdat", { ascending: true });
+
+      if (error) throw error;
+      
+      const formatted = (data || []).map((m: any) => ({
+        ...m,
+        senderId: m.senderid,
+        receiverId: m.receiverid,
+        createdAt: m.createdat
+      }));
+      res.json(formatted);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -326,10 +698,11 @@ async function startServer() {
   app.post("/api/messages", async (req, res) => {
     const { id, senderId, receiverId, text } = req.body;
     try {
-      const stmt = db.prepare(
-        "INSERT INTO messages (id, senderId, receiverId, text) VALUES (?, ?, ?, ?)"
-      );
-      stmt.run(id, senderId, receiverId, text);
+      const { error } = await supabase
+        .from("messages")
+        .insert({ id, senderid: senderId, receiverid: receiverId, text });
+
+      if (error) throw error;
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -337,13 +710,17 @@ async function startServer() {
   });
 
   // Broadcasts
-  app.post("/api/broadcasts", async (req, res) => {
+  app.post("/api/broadcasts", authenticate, async (req: any, res: any) => {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: "Forbidden: Admin only" });
+    }
     const { id, subject, content, target, senderId } = req.body;
     try {
-      const stmt = db.prepare(
-        "INSERT INTO broadcasts (id, subject, content, target, senderId) VALUES (?, ?, ?, ?, ?)"
-      );
-      stmt.run(id, subject, content, target, senderId);
+      const { error } = await supabase
+        .from("broadcasts")
+        .insert({ id, subject, content, target, senderid: senderId });
+
+      if (error) throw error;
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -353,18 +730,31 @@ async function startServer() {
   app.get("/api/payments", async (req, res) => {
     const { userId, propertyId } = req.query;
     try {
-      let sql = "SELECT p.*, pr.title as propertyTitle, u.displayName as tenantName FROM payments p JOIN properties pr ON p.propertyId = pr.id JOIN users u ON p.userId = u.id";
-      const values: any[] = [];
-      const conditions: string[] = [];
+      let query = supabase.from("payments").select("*, properties(title, ownerid), users(displayname)");
       
-      if (userId) { conditions.push("pr.ownerId = ?"); values.push(userId); }
-      if (propertyId) { conditions.push("p.propertyId = ?"); values.push(propertyId); }
+      if (propertyId) query = query.eq("propertyid", propertyId);
       
-      if (conditions.length > 0) sql += " WHERE " + conditions.join(" AND ");
-      sql += " ORDER BY p.createdAt DESC";
+      const { data: payments, error } = await query.order("createdat", { ascending: false });
+
+      if (error) throw error;
       
-      const rows = db.prepare(sql).all(...values);
-      res.json(rows);
+      // Filter by property owner if userId matches ownerid
+      let filtered = payments;
+      if (userId) {
+        filtered = payments.filter((p: any) => p.properties?.ownerid === userId);
+      }
+      
+      const formatted = filtered.map((p: any) => ({
+        ...p,
+        propertyTitle: p.properties?.title,
+        tenantName: p.users?.displayname,
+        userId: p.userid,
+        propertyId: p.propertyid,
+        transactionId: p.transactionid,
+        createdAt: p.createdat
+      }));
+      
+      res.json(formatted);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -423,9 +813,19 @@ async function startServer() {
 
       // Record pending payment
       const paymentId = uuidv4();
-      db.prepare(
-        "INSERT INTO payments (id, userId, propertyId, amount, purpose, status, transactionId) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(paymentId, userId, propertyId, amount, purpose, "pending", response.data.CheckoutRequestID);
+      const { error: insertError } = await supabase
+        .from("payments")
+        .insert({
+          id: paymentId,
+          userid: userId,
+          propertyid: propertyId,
+          amount,
+          purpose,
+          status: "pending",
+          transactionid: response.data.CheckoutRequestID
+        });
+
+      if (insertError) throw insertError;
 
       res.json({ success: true, checkoutRequestId: response.data.CheckoutRequestID, paymentId });
     } catch (err: any) {
@@ -436,8 +836,13 @@ async function startServer() {
 
   app.get("/api/payments/status/:id", async (req, res) => {
     try {
-      const payment: any = db.prepare("SELECT * FROM payments WHERE id = ?").get(req.params.id);
-      if (!payment) return res.status(404).json({ error: "Payment not found" });
+      const { data: payment, error } = await supabase
+        .from("payments")
+        .select("*")
+        .eq("id", req.params.id)
+        .single();
+
+      if (error || !payment) return res.status(404).json({ error: "Payment not found" });
       res.json(payment);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -460,9 +865,19 @@ async function startServer() {
 
       // Record pending payment
       const paymentId = uuidv4();
-      db.prepare(
-        "INSERT INTO payments (id, userId, propertyId, amount, purpose, status, transactionId) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(paymentId, userId, propertyId, amount, purpose, "pending", paymentIntent.id);
+      const { error: insertError } = await supabase
+        .from("payments")
+        .insert({
+          id: paymentId,
+          userid: userId,
+          propertyid: propertyId,
+          amount,
+          purpose,
+          status: "pending",
+          transactionid: paymentIntent.id
+        });
+
+      if (insertError) throw insertError;
 
       res.json({ clientSecret: paymentIntent.client_secret, paymentId });
     } catch (err: any) {
@@ -474,8 +889,15 @@ async function startServer() {
   app.patch("/api/payments/:id", async (req, res) => {
     const { status, transactionId } = req.body;
     try {
-      db.prepare("UPDATE payments SET status = ?, transactionId = COALESCE(?, transactionId) WHERE id = ?")
-        .run(status, transactionId, req.params.id);
+      const { error } = await supabase
+        .from("payments")
+        .update({
+          status,
+          transactionid: transactionId || undefined
+        })
+        .eq("id", req.params.id);
+
+      if (error) throw error;
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

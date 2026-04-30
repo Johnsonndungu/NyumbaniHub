@@ -7,6 +7,10 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { TenantDashboard } from './components/TenantDashboard';
 import { LandingPage } from './components/LandingPage';
 import { ResetPassword } from './components/ResetPassword';
+import { VerifyEmail } from './components/VerifyEmail';
+import { SafetyTips } from './components/SafetyTips';
+import { TermsOfService } from './components/TermsOfService';
+import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { Chat } from './components/Chat';
 import { Footer } from './components/Footer';
 import { ShieldCheck, UserCheck, CreditCard, Search } from 'lucide-react';
@@ -70,20 +74,25 @@ function FeatureSection() {
 }
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'landing' | 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard' | 'reset-password'>('landing');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard' | 'reset-password' | 'verify-email' | 'safety-tips' | 'terms' | 'privacy'>('landing');
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
     location: '',
+    country: 'all',
     type: 'all',
     priceRange: 'all'
   });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    if (token) {
+    const resetToken = params.get('token');
+    const verifyToken = params.get('verify_token');
+
+    if (resetToken && window.location.pathname.includes('reset-password')) {
       setCurrentPage('reset-password');
+    } else if (verifyToken || window.location.pathname.includes('verify-email')) {
+      setCurrentPage('verify-email');
     }
     
     const currentUser = api.getCurrentUser();
@@ -91,7 +100,7 @@ export default function App() {
     setLoading(false);
   }, []);
 
-  const handleSearch = (newFilters: { location: string; type: string; priceRange: string }) => {
+  const handleSearch = (newFilters: { location: string; country: string; type: string; priceRange: string }) => {
     setFilters(newFilters);
   };
 
@@ -155,6 +164,14 @@ export default function App() {
           </div>
         ) : currentPage === 'reset-password' ? (
           <ResetPassword onSuccess={() => setCurrentPage('landing')} />
+        ) : currentPage === 'verify-email' ? (
+          <VerifyEmail onNavigate={setCurrentPage} />
+        ) : currentPage === 'safety-tips' ? (
+          <SafetyTips />
+        ) : currentPage === 'terms' ? (
+          <TermsOfService />
+        ) : currentPage === 'privacy' ? (
+          <PrivacyPolicy />
         ) : (
           <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
             <ShieldCheck className="h-16 w-16 text-primary mb-4 opacity-20" />
@@ -171,7 +188,7 @@ export default function App() {
           </div>
         )}
       </main>
-      <Footer />
+      <Footer onNavigate={setCurrentPage} />
       <Toaster />
     </div>
   );

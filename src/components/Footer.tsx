@@ -1,6 +1,15 @@
 import { Home, Facebook, Twitter, Instagram, Mail, Phone, MapPin } from 'lucide-react';
 
-export function Footer() {
+interface FooterProps {
+  onNavigate: (page: any) => void;
+}
+
+export function Footer({ onNavigate }: FooterProps) {
+  const handleNav = (page: string) => {
+    onNavigate(page as any);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <footer className="bg-slate-950 text-slate-400 py-12 border-t border-slate-800">
       <div className="container mx-auto px-4">
@@ -23,20 +32,20 @@ export function Footer() {
           <div>
             <h4 className="text-white font-bold mb-6 uppercase text-xs tracking-widest">Quick Links</h4>
             <ul className="space-y-4 text-sm">
-              <li><a href="#" className="hover:text-primary transition-colors">Find a House</a></li>
-              <li><a href="#" className="hover:text-primary transition-colors">List Your Property</a></li>
-              <li><a href="#" className="hover:text-primary transition-colors">Verified Agents</a></li>
-              <li><a href="#" className="hover:text-primary transition-colors">Landlord Portal</a></li>
+              <li><button onClick={() => handleNav('home')} className="hover:text-primary transition-colors">Find a House</button></li>
+              <li><button onClick={() => handleNav('dashboard')} className="hover:text-primary transition-colors">List Your Property</button></li>
+              <li><button onClick={() => handleNav('home')} className="hover:text-primary transition-colors">Verified Agents</button></li>
+              <li><button onClick={() => handleNav('dashboard')} className="hover:text-primary transition-colors">Landlord Portal</button></li>
             </ul>
           </div>
 
           <div>
             <h4 className="text-white font-bold mb-6 uppercase text-xs tracking-widest">Support</h4>
             <ul className="space-y-4 text-sm">
-              <li><a href="#" className="hover:text-primary transition-colors">Help Center</a></li>
-              <li><a href="#" className="hover:text-primary transition-colors">Safety Tips</a></li>
-              <li><a href="#" className="hover:text-primary transition-colors">Terms of Service</a></li>
-              <li><a href="#" className="hover:text-primary transition-colors">Privacy Policy</a></li>
+              <li><button onClick={() => handleNav('home')} className="hover:text-primary transition-colors">Help Center</button></li>
+              <li><button onClick={() => handleNav('safety-tips')} className="hover:text-primary transition-colors">Safety Tips</button></li>
+              <li><button onClick={() => handleNav('terms')} className="hover:text-primary transition-colors">Terms of Service</button></li>
+              <li><button onClick={() => handleNav('privacy')} className="hover:text-primary transition-colors">Privacy Policy</button></li>
             </ul>
           </div>
 
