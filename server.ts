@@ -23,7 +23,7 @@ const getStripe = () => {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
   // --- File Storage Setup ---
   const storage = multer.diskStorage({
@@ -54,6 +54,7 @@ async function startServer() {
       const id = uuidv4();
       const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
       
+      const isAgentOrLandlord = (role === 'agent' || role === 'landlord');
       const { data: newUser, error: insertError } = await supabase
         .from("users")
         .insert({
@@ -63,9 +64,11 @@ async function startServer() {
           displayname: displayName,
           role: role || 'tenant',
           verificationtoken: verificationCode,
+          verificationexpiresat: new Date(Date.now() + 45000).toISOString(),
           emailverified: false,
           phonenumber: phoneNumber,
-          country: country || 'Kenya'
+          country: country || 'Kenya',
+          registrationpaid: isAgentOrLandlord ? false : true
         })
         .select("*")
         .single();
@@ -85,7 +88,9 @@ async function startServer() {
         emailVerified: newUser.emailverified,
         isVerified: newUser.isverified,
         phoneNumber: newUser.phonenumber,
-        country: newUser.country
+        country: newUser.country,
+        registrationPaid: newUser.registrationpaid,
+        viewQuota: newUser.viewquota || 10
       };
       
       const token = jwt.sign({ id: newUser.uid, email: newUser.email }, JWT_SECRET, { expiresIn: '7d' });
@@ -138,7 +143,9 @@ Code: ${verificationCode}
         isVerified: user.isverified,
         photoURL: user.photourl,
         phoneNumber: user.phonenumber,
-        country: user.country
+        country: user.country,
+        registrationPaid: user.registrationpaid,
+        viewQuota: user.viewquota
       };
       res.json({ user: sessionUser, token });
     } catch (err: any) {
@@ -350,9 +357,32 @@ Code: ${verificationCode}
         country: user.country,
         documentURL: user.documenturl,
         documentType: user.documenttype,
+        registrationPaid: user.registrationpaid,
+        viewQuota: user.viewquota,
         createdAt: user.createdat
       };
       res.json(formattedUser);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Decrement a user's view quota when they view a property
+  app.post('/api/users/:id/decrement-viewquota', authenticate, async (req: any, res: any) => {
+    try {
+      const { id } = req.params;
+      if (req.user.id !== id && req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+
+      const { data: u, error: fetchErr } = await supabase.from('users').select('viewquota').eq('uid', id).single();
+      if (fetchErr || !u) return res.status(404).json({ error: 'User not found' });
+
+      const current = (u && u.viewquota) ? u.viewquota : 0;
+      if (current <= 0) return res.status(402).json({ error: 'View quota exhausted' });
+
+      const { data: updated, error: updErr } = await supabase.from('users').update({ viewquota: current - 1 }).eq('uid', id).select('*').single();
+      if (updErr) throw updErr;
+
+      res.json({ success: true, viewQuota: updated.viewquota });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -383,7 +413,7 @@ Code: ${verificationCode}
 
   app.patch("/api/users/:id", authenticate, async (req: any, res: any) => {
     const { id } = req.params;
-    const { role, verified, displayName, phoneNumber, country, photoURL, documentURL, documentType } = req.body;
+    const { role, verified, displayName, phoneNumber, country, photoURL, documentURL, documentType, registrationPaid } = req.body;
     const isTargetingSelf = req.user.id === id;
     const isAdmin = req.user.role === 'admin';
 
@@ -400,6 +430,12 @@ Code: ${verificationCode}
       
       if (isAdmin && role) updates.role = role;
       if (isAdmin && verified !== undefined) updates.isverified = verified;
+      // Allow users to mark their registration payment as completed (only to true)
+      if (registrationPaid !== undefined) {
+        if (!isTargetingSelf) return res.status(403).json({ error: "Forbidden: cannot modify registration status for other users" });
+        if (registrationPaid !== true) return res.status(400).json({ error: "Invalid registrationPaid value" });
+        updates.registrationpaid = true;
+      }
       
       if (displayName) updates.displayname = displayName;
       if (phoneNumber) updates.phonenumber = phoneNumber;
@@ -431,6 +467,7 @@ Code: ${verificationCode}
         country: updatedUser.country,
         documentURL: updatedUser.documenturl,
         documentType: updatedUser.documenttype,
+        registrationPaid: updatedUser.registrationpaid,
         createdAt: updatedUser.createdat
       };
       res.json(formattedUser);
@@ -834,6 +871,72 @@ Code: ${verificationCode}
     }
   });
 
+  // M-Pesa callback endpoint to receive STK push results
+  app.post('/api/payments/mpesa/callback', async (req, res) => {
+    try {
+      const body = req.body;
+      // Safaricom wraps result in Body.stkCallback
+      const stk = body?.Body?.stkCallback;
+      if (!stk) return res.status(400).json({ error: 'Invalid callback payload' });
+
+      const checkoutRequestId = stk.CheckoutRequestID;
+      const resultCode = stk.ResultCode;
+
+      // Find pending payment by CheckoutRequestID (stored as transactionid)
+      const { data: payment, error: pErr } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('transactionid', checkoutRequestId)
+        .single();
+
+      if (pErr || !payment) {
+        console.warn('Payment not found for CheckoutRequestID', checkoutRequestId);
+        return res.json({ success: true });
+      }
+
+      if (resultCode === 0) {
+        // Successful payment
+        const mpesaReceipt = stk.CallbackMetadata?.Item?.find((i: any) => i.Name === 'MpesaReceiptNumber')?.Value || null;
+        const amount = stk.CallbackMetadata?.Item?.find((i: any) => i.Name === 'Amount')?.Value || payment.amount;
+        const phone = stk.CallbackMetadata?.Item?.find((i: any) => i.Name === 'PhoneNumber')?.Value || null;
+
+        const { error: updErr } = await supabase
+          .from('payments')
+          .update({ status: 'completed', transactionid: mpesaReceipt || checkoutRequestId, amount })
+          .eq('id', payment.id);
+
+        if (updErr) throw updErr;
+
+        // If this payment is for registration (we use propertyid 'registration' earlier), mark user registration paid
+        if (payment.purpose === 'deposit' && payment.propertyid === 'registration') {
+          await supabase
+            .from('users')
+            .update({ registrationpaid: true })
+            .eq('uid', payment.userid);
+        } else if (payment.purpose === 'viewpack' || payment.propertyid === 'viewpack') {
+          // Credit user's view quota by 20 for a viewpack purchase
+          const { data: u } = await supabase.from('users').select('viewquota').eq('uid', payment.userid).single();
+          const current = (u && u.viewquota) ? u.viewquota : 0;
+          await supabase
+            .from('users')
+            .update({ viewquota: current + 20 })
+            .eq('uid', payment.userid);
+        }
+      } else {
+        // Failed
+        await supabase
+          .from('payments')
+          .update({ status: 'failed' })
+          .eq('id', payment.id);
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('MPesa callback error:', err?.message || err);
+      res.status(500).json({ error: err.message || 'Internal error' });
+    }
+  });
+
   app.get("/api/payments/status/:id", async (req, res) => {
     try {
       const { data: payment, error } = await supabase
@@ -882,6 +985,76 @@ Code: ${verificationCode}
       res.json({ clientSecret: paymentIntent.client_secret, paymentId });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Stripe webhook endpoint to handle payment events
+  app.post('/api/payments/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const stripeClient = getStripe();
+    if (!stripeClient) return res.status(500).send('Stripe not configured');
+    const sig = req.headers['stripe-signature'] as string | undefined;
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    let event: any;
+
+    try {
+      if (webhookSecret && sig) {
+        event = stripeClient.webhooks.constructEvent(req.body, sig, webhookSecret);
+      } else {
+        // If no webhook secret configured, try parsing body (less secure)
+        event = JSON.parse(req.body.toString());
+      }
+    } catch (err: any) {
+      console.error('Stripe webhook signature verification failed.', err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    try {
+      if (event.type === 'payment_intent.succeeded') {
+        const intent = event.data.object;
+        const paymentIntentId = intent.id;
+
+        const { data: payment, error } = await supabase
+          .from('payments')
+          .select('*')
+          .eq('transactionid', paymentIntentId)
+          .single();
+
+        if (!error && payment) {
+          await supabase
+            .from('payments')
+            .update({ status: 'completed' })
+            .eq('id', payment.id);
+
+          if (payment.purpose === 'deposit' && payment.propertyid === 'registration') {
+            await supabase
+              .from('users')
+              .update({ registrationpaid: true })
+              .eq('uid', payment.userid);
+          }
+
+          // If this payment was for view quota (viewpack), credit the user
+          if (payment.purpose === 'viewpack' || payment.propertyid === 'viewpack') {
+            const { data: u } = await supabase.from('users').select('viewquota').eq('uid', payment.userid).single();
+            const current = (u && u.viewquota) ? u.viewquota : 0;
+            await supabase
+              .from('users')
+              .update({ viewquota: current + 20 })
+              .eq('uid', payment.userid);
+          }
+        }
+      } else if (event.type === 'payment_intent.payment_failed') {
+        const intent = event.data.object;
+        const paymentIntentId = intent.id;
+        await supabase
+          .from('payments')
+          .update({ status: 'failed' })
+          .eq('transactionid', paymentIntentId);
+      }
+
+      res.json({ received: true });
+    } catch (err: any) {
+      console.error('Stripe webhook handling error:', err.message || err);
+      res.status(500).json({ error: err.message || 'Webhook handling error' });
     }
   });
 

@@ -109,7 +109,7 @@ export default function App() {
     if (!user) return false;
     
     if (page === 'admin') return user?.role === 'admin';
-    if (page === 'dashboard') return user?.role === 'agent' || user?.role === 'landlord';
+    if (page === 'dashboard') return (user?.role === 'agent' || user?.role === 'landlord') && (user.registrationPaid !== false);
     if (page === 'tenant-dashboard') return user?.role === 'tenant';
     if (page === 'messages') return !!user;
     

@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
   isverified BOOLEAN DEFAULT FALSE,
   emailverified BOOLEAN DEFAULT FALSE,
   verificationtoken VARCHAR(128),
+  registrationpaid BOOLEAN DEFAULT FALSE,
+  viewquota INT DEFAULT 10,
   rating DECIMAL(3,2) DEFAULT 0.00,
   reviewcount INT DEFAULT 0,
   phonenumber VARCHAR(20),
@@ -51,6 +53,14 @@ BEGIN
   -- Ensure country column exists
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'country') THEN
     ALTER TABLE users ADD COLUMN country VARCHAR(100) DEFAULT 'Kenya';
+  END IF;
+  -- Ensure registration paid flag exists
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'registrationpaid') THEN
+    ALTER TABLE users ADD COLUMN registrationpaid BOOLEAN DEFAULT FALSE;
+  END IF;
+  -- Ensure view quota exists
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'viewquota') THEN
+    ALTER TABLE users ADD COLUMN viewquota INT DEFAULT 10;
   END IF;
 END $$;
 

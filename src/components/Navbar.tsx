@@ -16,6 +16,8 @@ import { Badge } from '@/components/ui/badge';
 import { api } from '@/src/services/api';
 import { AuthModal } from './AuthModal';
 
+const logoSrc = new URL('../../nyumbani ico logo.png', import.meta.url).href;
+
 interface NavbarProps {
   onNavigate: (page: 'landing' | 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard') => void;
   currentPage: 'landing' | 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard';
@@ -59,10 +61,10 @@ export function Navbar({ onNavigate, currentPage }: NavbarProps) {
     <nav className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto px-4 flex h-16 items-center justify-between">
         <div 
-          className="flex items-center gap-2 cursor-pointer" 
+          className="flex items-center gap-3 cursor-pointer" 
           onClick={() => onNavigate('landing')}
         >
-          <Home className="h-6 w-6 text-primary" />
+          <img src={logoSrc} alt="Nyumbani Hub logo" className="h-10 md:h-12 lg:h-14 xl:h-16 w-auto rounded-md" />
           <span className="text-xl font-bold tracking-tight text-primary">Nyumbani<span className="text-foreground">Hub</span></span>
         </div>
 

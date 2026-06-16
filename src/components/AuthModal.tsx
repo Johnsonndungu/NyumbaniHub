@@ -1,14 +1,9 @@
 import React, { useState } from 'react';
+import { PaymentModal } from './PaymentModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription,DialogHeader,DialogTitle,} from '@/components/ui/dialog';
 import { api } from '@/src/services/api';
 import { toast } from 'sonner';
 import { Loader2, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
@@ -23,6 +18,9 @@ interface AuthModalProps {
 export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot-password' | 'forgot-success' | 'verify-email'>('login');
   const [loading, setLoading] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
+  const [pendingUser, setPendingUser] = useState<any>(null);
+  const [registrationAmount, setRegistrationAmount] = useState<number>(2000);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -54,6 +52,14 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
       let data;
       if (mode === 'login') {
         data = await api.login({ email: formData.email, password: formData.password });
+        // If an agent/landlord hasn't paid registration fee, prompt for payment
+        if ((data.user.role === 'agent' || data.user.role === 'landlord') && data.user.registrationPaid === false) {
+          setPendingUser(data.user);
+          setRegistrationAmount(2000);
+          setShowPayment(true);
+          setLoading(false);
+          return;
+        }
         toast.success(`Welcome back, ${data.user.displayName}!`);
       } else {
         data = await api.signup({
@@ -66,6 +72,14 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
         });
         toast.success(`Account created! Please verify your email.`);
         setMode('verify-email');
+        // If agent/landlord, require registration payment
+        if (formData.role === 'agent' || formData.role === 'landlord') {
+          setPendingUser(data.user);
+          setRegistrationAmount(2000);
+          setShowPayment(true);
+          setLoading(false);
+          return;
+        }
         return;
       }
       onSuccess(data.user);
@@ -267,6 +281,30 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
           </>
       )}
       </DialogContent>
+      <PaymentModal
+        isOpen={showPayment}
+        onClose={() => setShowPayment(false)}
+        amount={registrationAmount}
+        propertyId={pendingUser?.id || 'registration'}
+        purpose={'deposit' as any}
+        onSuccess={async () => {
+          try {
+            // mark user as paid
+            if (pendingUser?.id) {
+              const updated = await api.updateUser(pendingUser.id, { registrationPaid: true });
+              const current = api.getCurrentUser() || {};
+              const newUser = { ...current, registrationPaid: true };
+              localStorage.setItem('user', JSON.stringify(newUser));
+              setShowPayment(false);
+              setPendingUser(null);
+              onSuccess(updated);
+              onClose();
+            }
+          } catch (err: any) {
+            toast.error(err.message || 'Failed to confirm payment');
+          }
+        }}
+      />
     </Dialog>
   );
 }
