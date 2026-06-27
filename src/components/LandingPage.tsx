@@ -3,13 +3,7 @@ import { motion } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ShieldCheck, UserCheck, CreditCard, ArrowRight, Star, MapPin, Search, Home as HomeIcon, Loader2, CheckCircle2, Globe } from 'lucide-react';
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { api } from '@/src/services/api';
 import { Property } from '@/src/types';
 import { PropertyCard } from './PropertyCard';
@@ -58,7 +52,7 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
           >
             <div className="flex items-center gap-3 mb-8">
               <span className="h-[2px] w-8 bg-primary" />
-              <span className="text-xs font-bold uppercase tracking-[0.3em] text-primary">Premium Real Estate Platform</span>
+              <span className="text-xs font-bold uppercase tracking-[0.3em] text-primary">Premium Rental Platform</span>
             </div>
             <h1 className="font-serif text-6xl md:text-8xl leading-[0.9] tracking-tight mb-8">
               Find Your <br />
@@ -126,7 +120,7 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
         {/* Right Image/Visual */}
         <div className="lg:w-1/2 relative min-h-[50vh] lg:min-h-full">
           <OptimizedImage 
-            src="https://picsum.photos/seed/nairobi-modern/1200/1600" 
+            src="https://https://cdn.pixabay.com/photo/2016/06/24/10/47/house-1477041_1280.jpg" 
             alt="Modern Nairobi Apartment" 
             containerClassName="absolute inset-0 w-full h-full"
           />
@@ -157,7 +151,7 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
         <div className="container mx-auto px-4">
           <div className="text-center max-w-3xl mx-auto mb-16">
             <h2 className="font-serif text-4xl md:text-5xl mb-4">The Nyumbani Standard</h2>
-            <p className="text-slate-500">We've built the most secure ecosystem for renting in Kenya.</p>
+            <p className="text-slate-500">We've built the most secure ecosystem for renting in the world.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
@@ -167,7 +161,7 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
               </div>
               <h3 className="text-xl font-bold mb-3">Verified Listings</h3>
               <p className="text-slate-500 text-sm leading-relaxed">
-                Every property listed goes through a rigorous verification process. We check title deeds and ownership documents.
+                Every property listed goes through a rigorous verification process. We check agents business credentials and make sure they are registered, for landlords we verify their identity.
               </p>
             </div>
             <div className="text-center group">
@@ -246,9 +240,9 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
         <div className="container mx-auto px-4">
           <p className="text-center text-[10px] uppercase tracking-[0.3em] text-slate-400 font-bold mb-12">Trusted by Industry Leaders</p>
           <div className="flex flex-wrap justify-center items-center gap-12 md:gap-24 opacity-40 grayscale contrast-125">
-            <div className="text-2xl font-serif font-bold italic tracking-tighter">EquityBank</div>
-            <div className="text-2xl font-serif font-bold italic tracking-tighter">Safaricom</div>
-            <div className="text-2xl font-serif font-bold italic tracking-tighter">KCB Group</div>
+            <div className="text-2xl font-serif font-bold italic tracking-tighter">Bringo Fresh</div>
+            <div className="text-2xl font-serif font-bold italic tracking-tighter">Code Planke solutions</div>
+            <div className="text-2xl font-serif font-bold italic tracking-tighter">Terraaid Organisation</div>
             <div className="text-2xl font-serif font-bold italic tracking-tighter">KnightFrank</div>
             <div className="text-2xl font-serif font-bold italic tracking-tighter">HassConsult</div>
           </div>
@@ -305,8 +299,8 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
               <div className="space-y-6">
                 {[
                   { name: 'Kilimani', count: '1,240 Properties' },
-                  { name: 'Westlands', count: '850 Properties' },
-                  { name: 'Karen', count: '420 Properties' },
+                  { name: 'Freetown', count: '850 Properties' },
+                  { name: 'New York', count: '420 Properties' },
                   { name: 'Lavington', count: '630 Properties' },
                 ].map((loc, i) => (
                   <div 
@@ -322,7 +316,7 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
             </div>
             <div className="relative aspect-square">
               <OptimizedImage 
-                src="https://picsum.photos/seed/nairobi-aerial/1000/1000" 
+                src="https://cdn.pixabay.com/photo/2016/08/26/15/06/home-1622401_1280.jpg" 
                 alt="Neighborhood Aerial View"
                 containerClassName="w-full h-full rounded-[5rem]"
                 className="grayscale hover:grayscale-0 transition-all duration-1000"
@@ -340,13 +334,13 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
         <div className="container mx-auto px-4">
           <h2 className="font-serif text-5xl md:text-7xl mb-8">Ready to move?</h2>
           <p className="text-xl text-slate-500 mb-12 max-w-2xl mx-auto font-light">
-            Join thousands of Kenyans who have found their perfect living space through Nyumbani Hub.
+            Join thousands of people who have found their perfect living space through Nyumbani Hub.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button size="lg" className="h-16 px-12 text-lg font-bold rounded-none" onClick={onExplore}>
+            <Button size="lg" className="h-16 px-12 text-lg font-bold rounded-none" onClick={handleQuickSearch}>
               Find Your Home
             </Button>
-            <Button size="lg" variant="outline" className="h-16 px-12 text-lg font-bold rounded-none border-[#1a1a1a]">
+            <Button size="lg" variant="outline" className="h-16 px-12 text-lg font-bold rounded-none border-[#1a1a1a]"onClick={onExplore}>
               List Property
             </Button>
           </div>

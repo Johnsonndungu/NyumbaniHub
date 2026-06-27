@@ -2,13 +2,7 @@ import { useState } from 'react';
 import { Search, MapPin, Home, Banknote, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from '@/components/ui/select';
 import { motion } from 'motion/react';
 
 interface HeroProps {
@@ -114,7 +108,7 @@ export function Hero({ onSearch }: HeroProps) {
 
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-2">
-                  <Banknote className="h-3 w-3" /> Price Range (KSh)
+                  <Banknote className="h-3 w-3" /> Price Range (KSH)
                 </label>
                 <Select value={priceRange} onValueChange={setPriceRange}>
                   <SelectTrigger className="border-slate-200">

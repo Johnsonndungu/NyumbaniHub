@@ -20,7 +20,7 @@ export function Footer({ onNavigate }: FooterProps) {
               <span className="text-xl font-bold tracking-tight">NyumbaniHub</span>
             </div>
             <p className="text-sm leading-relaxed">
-              Kenya's most trusted house rental platform. Connecting tenants with verified landlords and agents since 2024.
+              The most trusted house rental platform. Connecting tenants with verified landlords and agents.
             </p>
             <div className="flex gap-4">
               <a href="#" className="hover:text-primary transition-colors"><Facebook className="h-5 w-5" /></a>
@@ -34,8 +34,6 @@ export function Footer({ onNavigate }: FooterProps) {
             <ul className="space-y-4 text-sm">
               <li><button onClick={() => handleNav('home')} className="hover:text-primary transition-colors">Find a House</button></li>
               <li><button onClick={() => handleNav('dashboard')} className="hover:text-primary transition-colors">List Your Property</button></li>
-              <li><button onClick={() => handleNav('home')} className="hover:text-primary transition-colors">Verified Agents</button></li>
-              <li><button onClick={() => handleNav('dashboard')} className="hover:text-primary transition-colors">Landlord Portal</button></li>
             </ul>
           </div>
 
@@ -58,7 +56,7 @@ export function Footer({ onNavigate }: FooterProps) {
               </li>
               <li className="flex items-center gap-3">
                 <Phone className="h-5 w-5 text-primary shrink-0" />
-                <span>+254 700 000 000</span>
+                <span>+254 746097317</span>
               </li>
               <li className="flex items-center gap-3">
                 <Mail className="h-5 w-5 text-primary shrink-0" />
@@ -69,7 +67,7 @@ export function Footer({ onNavigate }: FooterProps) {
         </div>
         
         <div className="mt-12 pt-8 border-t border-slate-800 text-center text-xs">
-          <p>&copy; {new Date().getFullYear()} Nyumbani Hub. All rights reserved. Made with ❤️ for Kenya.</p>
+          <p>&copy; {new Date().getFullYear()} Nyumbani Hub. All rights reserved. Made with ❤️ for the world.</p>
         </div>
       </div>
     </footer>
