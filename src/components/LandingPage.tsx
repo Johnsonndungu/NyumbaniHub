@@ -54,12 +54,13 @@ export function LandingPage({ onExplore, onSearch }: LandingPageProps) {
               <span className="h-[2px] w-8 bg-primary" />
               <span className="text-xs font-bold uppercase tracking-[0.3em] text-primary">Premium Rental Platform</span>
             </div>
-            <h1 className="font-serif text-6xl md:text-8xl leading-[0.9] tracking-tight mb-8">
+            <h1 className="font-serif text-6xl md:text-8xl leading-[0.9] tracking-tight mb-8"> 
               Find Your <br />
-              <span className="italic text-primary">Perfect</span> Space.
+            <span className="italic text-primary">Perfect</span> Space.
+              
             </h1>
             <p className="text-lg text-slate-500 max-w-md mb-12 leading-relaxed font-light">
-              Nyumbani Hub connects you with hand-picked, verified properties across Kenya, USA, and Sierra Leone. Experience a seamless rental journey.
+              Nyumbani Hub connects you with hand-picked, verified rental houses across Kenya, USA, and Sierra Leone. Experience a seamless rental journey.
             </p>
 
             {/* Quick Search Bar */}

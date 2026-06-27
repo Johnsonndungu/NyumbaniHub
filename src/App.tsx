@@ -47,7 +47,7 @@ function FeatureSection() {
       <div className="container mx-auto px-4">
         <div className="text-center max-w-3xl mx-auto mb-16">
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Why Choose Nyumbani Hub?</h2>
-          <p className="mt-4 text-lg text-slate-500">We're revolutionizing the Kenyan real estate market with transparency and security.</p>
+          <p className="mt-4 text-lg text-slate-500">We're revolutionizing the global rental market with transparency and security.</p>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">

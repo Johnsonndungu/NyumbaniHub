@@ -36,7 +36,7 @@ interface Application {
 }
 
 interface TenantDashboardProps {
-  onNavigate: (page: 'home' | 'dashboard' | 'admin' | 'messages' | 'tenant-dashboard') => void;
+  onNavigate: (page: 'home' | 'dashboard' | 'messages' | 'tenant-dashboard') => void;
 }
 
 export function TenantDashboard({ onNavigate }: TenantDashboardProps) {
