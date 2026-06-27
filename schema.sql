@@ -22,6 +22,22 @@ CREATE TABLE IF NOT EXISTS users (
   createdat TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Security: Account lockout tracking
+CREATE TABLE IF NOT EXISTS failed_login_attempts (
+  id VARCHAR(128) PRIMARY KEY,
+  userid VARCHAR(128) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  attemptsat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  ipaddress VARCHAR(45),
+  FOREIGN KEY (userid) REFERENCES users(uid) ON DELETE CASCADE
+);
+
+-- Add lockout status columns to users table
+ALTER TABLE users ADD COLUMN IF NOT EXISTS accountlocked BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS lockeduntil TIMESTAMP NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS lastfailedloginat TIMESTAMP NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS failedloginattempts INT DEFAULT 0;
+
 -- Migration logic to handle old schema casing if it exists
 DO $$ 
 BEGIN

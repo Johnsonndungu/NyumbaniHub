@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PaymentModal } from './PaymentModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription,DialogHeader,DialogTitle,} from '@/components/ui/dialog';
 import { api } from '@/src/services/api';
 import { toast } from 'sonner';
-import { Loader2, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Mail, Lock, User, Eye, EyeOff, CheckCircle2, RotateCcw } from 'lucide-react';
 import { PasswordStrength } from './PasswordStrength';
 
 interface AuthModalProps {
@@ -21,6 +21,8 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   const [showPayment, setShowPayment] = useState(false);
   const [pendingUser, setPendingUser] = useState<any>(null);
   const [registrationAmount, setRegistrationAmount] = useState<number>(2000);
+  const [resendTimer, setResendTimer] = useState(0);
+  const codeInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -30,6 +32,42 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     role: 'tenant',
     verificationCode: ''
   });
+
+  // Focus code input when verification mode opens
+  useEffect(() => {
+    if (mode === 'verify-email' && isOpen && codeInputRef.current) {
+      setTimeout(() => codeInputRef.current?.focus(), 100);
+    }
+  }, [mode, isOpen]);
+
+  // Auto-submit when 6 digits are entered
+  useEffect(() => {
+    if (mode === 'verify-email' && formData.verificationCode.length === 6 && !loading) {
+      handleSubmit(new Event('submit') as any);
+    }
+  }, [formData.verificationCode, mode, loading]);
+
+  // Countdown timer for resend
+  useEffect(() => {
+    if (resendTimer > 0) {
+      const timer = setTimeout(() => setResendTimer(resendTimer - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendTimer]);
+
+  const handleResendCode = async () => {
+    try {
+      setLoading(true);
+      await api.resendVerification(formData.email);
+      toast.success("Verification code sent to your email!");
+      setResendTimer(60); // 60 second cooldown
+      setFormData({ ...formData, verificationCode: '' });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to resend code");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,9 +81,14 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
       }
 
       if (mode === 'verify-email') {
+        if (!formData.verificationCode || formData.verificationCode.length !== 6) {
+          toast.error("Please enter a 6-digit code");
+          return;
+        }
         await api.verifyEmail({ email: formData.email, code: formData.verificationCode });
         toast.success("Email verified successfully!");
         setMode('login');
+        setFormData({ ...formData, verificationCode: '' });
         return;
       }
 
@@ -180,17 +223,46 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
           )}
 
           {mode === 'verify-email' && (
-            <div className="space-y-2">
-              <Label htmlFor="verificationCode">Verification Code</Label>
-              <Input
-                id="verificationCode"
-                placeholder="123456"
-                className="text-center text-2xl tracking-widest"
-                maxLength={6}
-                value={formData.verificationCode}
-                onChange={(e) => setFormData({ ...formData, verificationCode: e.target.value })}
-                required
-              />
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="verificationCode">6-Digit Verification Code</Label>
+                <div className="relative">
+                  <Input
+                    ref={codeInputRef}
+                    id="verificationCode"
+                    placeholder="000000"
+                    className="text-center text-3xl tracking-[8px] font-bold font-mono letter-spacing"
+                    maxLength={6}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={formData.verificationCode}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9]/g, '');
+                      setFormData({ ...formData, verificationCode: value });
+                    }}
+                    disabled={loading}
+                  />
+                  {formData.verificationCode.length === 6 && (
+                    <CheckCircle2 className="absolute right-3 top-3 h-5 w-5 text-emerald-500" />
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 text-center">
+                  Check your email for the 6-digit code. It may take a minute to arrive.
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="flex-1 gap-2"
+                  onClick={handleResendCode}
+                  disabled={loading || resendTimer > 0}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  {resendTimer > 0 ? `Resend in ${resendTimer}s` : 'Resend Code'}
+                </Button>
+              </div>
             </div>
           )}
           
@@ -258,9 +330,9 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
             </div>
           )}
 
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button type="submit" className="w-full" disabled={loading || (mode === 'verify-email' && formData.verificationCode.length !== 6)}>
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {mode === 'login' ? 'Sign In' : mode === 'signup' ? 'Create Account' : mode === 'verify-email' ? 'Verify Code' : 'Send Reset Link'}
+            {mode === 'login' ? 'Sign In' : mode === 'signup' ? 'Create Account' : mode === 'verify-email' ? (formData.verificationCode.length === 6 ? 'Verifying...' : 'Enter 6-digit code') : 'Send Reset Link'}
           </Button>
         </form>
 

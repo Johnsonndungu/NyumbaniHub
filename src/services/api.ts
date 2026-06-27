@@ -229,6 +229,28 @@ export const api = {
     return res.json();
   },
 
+  // Admin: locked accounts
+  getLockedUsers: async () => {
+    const res = await fetch(`${API_BASE}/admin/locked-users`, { headers: getHeaders() });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Failed to fetch locked users');
+    }
+    return res.json();
+  },
+  unlockUser: async (idOrEmail: { id?: string; email?: string }) => {
+    const res = await fetch(`${API_BASE}/admin/unlock-user`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(idOrEmail)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Failed to unlock user');
+    }
+    return res.json();
+  },
+
   // Properties
   getProperties: async (filters: any = {}) => {
     const params = new URLSearchParams(filters);

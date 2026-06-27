@@ -45,6 +45,16 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
+  // Simple in-memory rate limiter for login (per-IP)
+  const loginRateMap: Map<string, { count: number; firstSeen: number }> = new Map();
+  const LOGIN_RATE_WINDOW = 60 * 1000; // 1 minute
+  const LOGIN_MAX_PER_WINDOW = 10; // max attempts per IP per window
+
+  const resolveRegistrationPaid = (user: any, role?: string) => {
+    if (user?.registrationpaid !== undefined) return user.registrationpaid;
+    return !(role === 'agent' || role === 'landlord');
+  };
+
   // --- Auth Routes ---
 
   app.post("/api/auth/signup", async (req, res) => {
@@ -115,6 +125,25 @@ Code: ${verificationCode}
 
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
+    // Rate limit by IP
+    try {
+      const ip = req.ip || req.connection.remoteAddress || 'unknown';
+      const now = Date.now();
+      const entry = loginRateMap.get(ip) || { count: 0, firstSeen: now };
+      if (now - entry.firstSeen > LOGIN_RATE_WINDOW) {
+        entry.count = 1;
+        entry.firstSeen = now;
+      } else {
+        entry.count += 1;
+      }
+      loginRateMap.set(ip, entry);
+      if (entry.count > LOGIN_MAX_PER_WINDOW) {
+        return res.status(429).json({ error: 'Too many requests from this IP. Please try again later.' });
+      }
+    } catch (e) {
+      // ignore rate limiter failures
+    }
+    const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
     try {
       const { data: user, error: fetchError } = await supabase
         .from("users")
@@ -123,17 +152,45 @@ Code: ${verificationCode}
         .single();
 
       if (fetchError || !user || !user.password) {
+        // Log failed attempt (do not reveal user existence)
+        try {
+          await supabase.from("failed_login_attempts").insert({ id: uuidv4(), userid: 'unknown', email, ipaddress: clientIp });
+        } catch (e) {}
         return res.status(401).json({ error: "Invalid credentials" });
       }
-      
+
+      // If account locked, check expiration
+      if (user.accountlocked) {
+        const now = new Date();
+        if (user.lockeduntil && new Date(user.lockeduntil) > now) {
+          const mins = Math.ceil((new Date(user.lockeduntil).getTime() - now.getTime()) / 60000);
+          return res.status(429).json({ error: `Account locked. Try again in ${mins} minute${mins !== 1 ? 's' : ''}.`, locked: true });
+        }
+        // unlock if lockeduntil passed
+        try { await supabase.from("users").update({ accountlocked: false, lockeduntil: null, failedloginattempts: 0 }).eq("uid", user.uid); } catch (e) {}
+      }
+
       const isValid = await bcrypt.compare(password, user.password);
       if (!isValid) {
-        return res.status(401).json({ error: "Invalid credentials" });
+        // Record failed attempt
+        try { await supabase.from("failed_login_attempts").insert({ id: uuidv4(), userid: user.uid, email, ipaddress: clientIp }); } catch (e) {}
+
+        const attempts = (user.failedloginattempts || 0) + 1;
+        // Lock account after 4 failed attempts
+        if (attempts >= 4) {
+          const until = new Date(Date.now() + 15 * 60000).toISOString();
+          try { await supabase.from("users").update({ accountlocked: true, lockeduntil: until, failedloginattempts: attempts, lastfailedloginat: new Date().toISOString() }).eq("uid", user.uid); } catch (e) {}
+          return res.status(429).json({ error: "Account locked. Too many failed attempts. Try again in 15 minutes.", locked: true });
+        }
+
+        try { await supabase.from("users").update({ failedloginattempts: attempts, lastfailedloginat: new Date().toISOString() }).eq("uid", user.uid); } catch (e) {}
+        return res.status(401).json({ error: `Invalid credentials. ${4 - attempts} attempt${4 - attempts !== 1 ? 's' : ''} remaining.`, attemptsRemaining: 4 - attempts });
       }
-      
+
+      // Successful login - reset counters
+      try { await supabase.from("users").update({ failedloginattempts: 0, lastfailedloginat: null }).eq("uid", user.uid); } catch (e) {}
+
       const token = jwt.sign({ id: user.uid, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-      
-      // Don't send password back
       const { password: _, ...userWithoutPassword } = user;
       const sessionUser = {
         ...userWithoutPassword,
@@ -206,7 +263,7 @@ Full Link: http://localhost:3000${resetLink}
         .select("*")
         .eq("token", token)
         .eq("used", false)
-        .lt("expiresat", new Date().toISOString())
+        .gt("expiresat", new Date().toISOString())
         .single();
 
       if (fetchError || !reset) {
@@ -490,6 +547,28 @@ Code: ${verificationCode}
       res.json(users);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Admin: unlock user account
+  app.post("/api/admin/unlock-user", authenticate, async (req: any, res: any) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden: Admin only' });
+    const { id, email } = req.body;
+    if (!id && !email) return res.status(400).json({ error: 'Provide id or email' });
+    try {
+      let query = supabase.from('users').select('*');
+      query = id ? query.eq('uid', id) : query.eq('email', email);
+      const { data: user, error: fetchError } = await query.single();
+      if (fetchError || !user) return res.status(404).json({ error: 'User not found' });
+
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ accountlocked: false, lockeduntil: null, failedloginattempts: 0, lastfailedloginat: null })
+        .eq('uid', user.uid);
+      if (updateError) throw updateError;
+      res.json({ success: true, message: 'Account unlocked' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

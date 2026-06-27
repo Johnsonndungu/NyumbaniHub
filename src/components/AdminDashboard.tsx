@@ -58,6 +58,9 @@ interface User {
   photoURL?: string;
   documentURL?: string;
   documentType?: string;
+  accountlocked?: boolean;
+  lockeduntil?: string | null;
+  failedloginattempts?: number;
 }
 
 interface Stats {
@@ -147,6 +150,18 @@ export function AdminDashboard() {
     } catch (err) {
       console.error(err);
       toast.error('Failed to delete user');
+    }
+  };
+
+  const handleUnlockUser = async (userId: string) => {
+    if (!confirm('Unlock this user account?')) return;
+    try {
+      await api.unlockUser({ id: userId });
+      toast.success('User unlocked');
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to unlock user');
     }
   };
 
@@ -539,6 +554,9 @@ export function AdminDashboard() {
                             ) : (
                               <Badge variant="secondary">Unverified</Badge>
                             )}
+                            {user.accountlocked && (
+                              <Badge className="ml-2 bg-destructive/10 text-destructive border-none">Locked</Badge>
+                            )}
                             {(user.role === 'agent' || user.role === 'landlord') && (
                               <Button 
                                 variant="ghost" 
@@ -572,6 +590,12 @@ export function AdminDashboard() {
                                 <ShieldCheck className="mr-2 h-4 w-4" />
                                 {user.isVerified ? 'Revoke Verification' : 'Verify User'}
                               </DropdownMenuItem>
+                              {user.accountlocked && (
+                                <DropdownMenuItem onClick={() => handleUnlockUser(user.id)}>
+                                  <ShieldCheck className="mr-2 h-4 w-4" />
+                                  Unlock Account
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuSeparator />
                               <DropdownMenuLabel className="text-[10px] uppercase text-slate-400">Change Role</DropdownMenuLabel>
                               <DropdownMenuItem onClick={() => handleChangeRole(user.id, 'tenant')}>
